@@ -165,66 +165,6 @@ export function getVerseRange(
 		console.log(`[DB] getVerseRange: Book#${bookNumber}, Ch${chapter}:${verseStart}-${verseEnd} from ${dbInstance.translation}`);
 		console.log(`[DB] Query params: [${bookNumber}, ${chapter}, ${verseStart}, ${verseEnd}]`);
 
-		// Try a simpler query first to debug
-		const debugStmt = dbInstance.db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`);
-		const tables: string[] = [];
-		while (debugStmt.step()) {
-			const row = debugStmt.getAsObject() as any;
-			tables.push(row.name);
-		}
-		debugStmt.free();
-		console.log(`[DB] Available tables: ${tables.join(', ')}`);
-
-		// Check structure of verses table
-		const schemaStmt = dbInstance.db.prepare(`PRAGMA table_info(verses)`);
-		const columns: string[] = [];
-		while (schemaStmt.step()) {
-			const row = schemaStmt.getAsObject() as any;
-			columns.push(`${row.name}(${row.type})`);
-		}
-		schemaStmt.free();
-		console.log(`[DB] verses columns: ${columns.join(', ')}`);
-
-		// Check if there's any data at all
-		const countStmt = dbInstance.db.prepare(`SELECT COUNT(*) as cnt FROM verses`);
-		let totalVersesInDb = 0;
-		if (countStmt.step()) {
-			const row = countStmt.getAsObject() as any;
-			totalVersesInDb = row.cnt;
-		}
-		countStmt.free();
-		console.log(`[DB] Total verses in database: ${totalVersesInDb}`);
-
-		// Check if book 1 exists
-		const bookStmt = dbInstance.db.prepare(`SELECT COUNT(*) as cnt FROM verses WHERE book_number = ?`);
-		bookStmt.bind([bookNumber]);
-		let book1Count = 0;
-		if (bookStmt.step()) {
-			const row = bookStmt.getAsObject() as any;
-			book1Count = row.cnt;
-		}
-		bookStmt.free();
-		console.log(`[DB] Verses for book#${bookNumber}: ${book1Count}`);
-
-		// Check what book numbers actually exist
-		const booksStmt = dbInstance.db.prepare(`SELECT DISTINCT book_number FROM verses ORDER BY book_number LIMIT 10`);
-		const bookNumbers: number[] = [];
-		while (booksStmt.step()) {
-			const row = booksStmt.getAsObject() as any;
-			bookNumbers.push(row.book_number);
-		}
-		booksStmt.free();
-		console.log(`[DB] First 10 book_numbers in verses: ${bookNumbers.join(', ')}`);
-
-		// Check the books table
-		const bookListStmt = dbInstance.db.prepare(`SELECT * FROM books LIMIT 3`);
-		console.log(`[DB] Sample books:`);
-		while (bookListStmt.step()) {
-			const row = bookListStmt.getAsObject() as any;
-			console.log(`  - ${JSON.stringify(row)}`);
-		}
-		bookListStmt.free();
-
 		const stmt = dbInstance.db.prepare(
 			`SELECT
 				v.book_number, b.short_name, b.long_name, v.chapter, v.verse, v.text

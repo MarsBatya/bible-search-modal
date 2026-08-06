@@ -6,15 +6,35 @@ import { Verse } from '../types';
 
 /**
  * Strip markup from verse text
- * Removes: <pb/>, <S>number</S>, and converts <i>text</i>
+ *
+ * Handles the following markup tags found in Bible databases:
+ * 1. <pb/> - Page break marker (self-closing)
+ * 2. <S>NUMBER</S> - Strong's concordance reference numbers
+ * 3. <i>TEXT</i> - Italics formatting (removes tags, keeps text)
+ *
+ * @param text The verse text potentially containing markup
+ * @returns Clean text with all markup removed
  */
 export function stripMarkup(text: string | null | undefined): string {
 	if (!text) return '';
 
 	return text
-		.replace(/<pb\/>/g, '') // Remove page breaks
-		.replace(/<S>\d+<\/S>/g, '') // Remove Strong's numbers
-		.replace(/<i>(.*?)<\/i>/g, '$1') // Remove italic tags but keep text
+		// Remove page break markers (self-closing tags)
+		.replace(/<pb\s*\/>/gi, '')
+
+		// Remove Strong's concordance numbers (e.g., <S>7225</S>)
+		// Handles: uppercase/lowercase variants, spaces, and any content in tags
+		.replace(/<[Ss]>[^<]*<\/[Ss]>/g, '')
+
+		// Remove/unwrap italic tags but keep the text content
+		// Handles: <i>text</i> → text, preserves nested content
+		.replace(/<i>(.*?)<\/i>/gi, '$1')
+
+		// Clean up any remaining/malformed tags (safety fallback)
+		.replace(/<[^>]*>/g, '')
+
+		// Normalize whitespace (multiple spaces to single space)
+		.replace(/\s+/g, ' ')
 		.trim();
 }
 
