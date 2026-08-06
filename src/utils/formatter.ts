@@ -89,26 +89,44 @@ export function formatVerse(verse: Verse, template: string, stripMarkupFlag: boo
 /**
  * Highlight matching keywords in text (case-insensitive)
  * Works with both Latin and Cyrillic text
+ *
+ * Features:
+ * - Removes duplicate keywords to prevent double-highlighting
+ * - Highlights substring matches (e.g., "или" in "стыдились")
+ * - Avoids double-wrapping: doesn't highlight text already wrapped in **...**
  */
 export function highlightKeywords(text: string | null | undefined, keywords: string[]): string {
 	if (!text || keywords.length === 0) return text || '';
 
+	// Remove duplicates (case-insensitive) to prevent highlighting the same keyword twice
+	const uniqueKeywords = Array.from(new Set(keywords.map(k => k.toLowerCase())));
+
 	// Sort keywords by length (longest first) to avoid overlapping replacements
-	const sortedKeywords = [...keywords].sort((a, b) => b.length - a.length);
+	const sortedKeywords = uniqueKeywords.sort((a, b) => b.length - a.length);
 
 	let result = text;
-	for (const keyword of sortedKeywords) {
+	const highlightMap: Record<string, string> = {};
+
+	// Process each keyword, using placeholders to protect already-highlighted text
+	sortedKeywords.forEach((keyword, i) => {
+		const placeholder = `__HIGHLIGHT_${i}__`;
+		highlightMap[placeholder] = `**${keyword}**`;
+
 		try {
-			// Case-insensitive search - highlight any occurrence of the keyword
-			// This works with Latin, Cyrillic, and mixed text
-			// Escape special regex characters in the keyword
+			// First pass: replace all occurrences with placeholder
 			const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 			const regex = new RegExp(escapedKeyword, 'gi');
-			result = result.replace(regex, `**$&**`);
+			result = result.replace(regex, placeholder);
 		} catch (error) {
 			console.warn(`Failed to highlight keyword "${keyword}":`, error);
 		}
-	}
+	});
+
+	// Second pass: replace all placeholders with highlighted versions
+	// This prevents inner keywords from breaking outer keyword highlighting
+	Object.entries(highlightMap).forEach(([placeholder, highlighted]) => {
+		result = result.replace(new RegExp(placeholder, 'g'), highlighted);
+	});
 
 	return result;
 }
