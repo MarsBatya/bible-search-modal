@@ -59,6 +59,13 @@ export function renderVerseResult(
 		textEl.textContent = text || '(No text available)';
 	}
 
+	// Add click handler to main verse
+	mainVerseEl.addEventListener('click', (e) => {
+		e.stopPropagation();
+		options.onSelect(verse);
+	});
+	mainVerseEl.style.cursor = 'pointer';
+
 	// Parallel verse (if available)
 	if (parallelVerse) {
 		const parallelEl = resultEl.createDiv({ cls: 'verse-block parallel-verse' });
@@ -83,12 +90,14 @@ export function renderVerseResult(
 		} else {
 			parallelTextEl.textContent = parallelText || '(No text available)';
 		}
-	}
 
-	// Add click handler
-	resultEl.addEventListener('click', () => {
-		options.onSelect(verse);
-	});
+		// Add click handler to parallel verse
+		parallelEl.addEventListener('click', (e) => {
+			e.stopPropagation();
+			options.onSelect(parallelVerse);
+		});
+		parallelEl.style.cursor = 'pointer';
+	}
 }
 
 /**

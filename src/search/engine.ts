@@ -212,8 +212,20 @@ function keywordSearch(
 	if (showParallel && results.length > 0) {
 		const otherDb = selectedDb.translation === 'KJV' ? rstDb : kjvDb;
 		if (otherDb && otherDb.isLoaded) {
-			// For keyword search parallel, just search the same keywords in other language
-			parallelResults = searchVersesKeyword(otherDb, keywords);
+			// For keyword search parallel, fetch the same verses by their references
+			// (not by keyword, since the keywords are in the source language)
+			parallelResults = [];
+			for (const result of results) {
+				const parallelVerse = getVerse(
+					otherDb,
+					result.book_number,
+					result.chapter,
+					result.verse
+				);
+				if (parallelVerse) {
+					parallelResults.push(parallelVerse);
+				}
+			}
 		}
 	}
 
