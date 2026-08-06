@@ -25,6 +25,13 @@ export class BibleSearchModal extends Modal {
 	private searchQuery: string = '';
 	private initialQuery: string = '';
 
+	// Debouncing and cancellation
+	private searchDebounceTimer: number | null = null;
+	private currentSearchAbortController: AbortController | null = null;
+
+	// Debounce delay (ms) - adjust for mobile responsiveness
+	private readonly DEBOUNCE_DELAY = 300;
+
 	constructor(app: App, plugin: BibleSearchPlugin) {
 		super(app);
 		this.plugin = plugin;
@@ -65,26 +72,64 @@ export class BibleSearchModal extends Modal {
 	}
 
 	/**
-	 * Handle search input
+	 * Handle search input with debouncing
+	 * Waits for user to stop typing before performing expensive database search
 	 */
-	private async handleSearch(query: string) {
+	private handleSearch(query: string) {
 		this.searchQuery = query;
 		this.selectedIndex = -1;
+
+		// Clear previous debounce timer
+		if (this.searchDebounceTimer !== null) {
+			clearTimeout(this.searchDebounceTimer);
+		}
 
 		if (!query || query.length === 0) {
 			this.resultsContainer.empty();
 			return;
 		}
 
-		try {
-			showLoading(this.resultsContainer);
+		// Show loading state immediately, but defer actual search
+		showLoading(this.resultsContainer);
 
+		// Debounce: wait for user to stop typing
+		this.searchDebounceTimer = window.setTimeout(() => {
+			this.performSearch(query);
+		}, this.DEBOUNCE_DELAY);
+	}
+
+	/**
+	 * Perform the actual search (after debounce)
+	 */
+	private async performSearch(query: string) {
+		// Cancel previous search if still in progress
+		if (this.currentSearchAbortController) {
+			this.currentSearchAbortController.abort();
+		}
+
+		// Create new abort controller for this search
+		this.currentSearchAbortController = new AbortController();
+		const abortSignal = this.currentSearchAbortController.signal;
+
+		// Double-check this is still the latest query
+		// (user might have typed more while debouncing)
+		if (query !== this.searchQuery) {
+			return;
+		}
+
+		try {
 			const dbEngine = this.plugin.getDbEngine();
+
+			// Check if search was aborted while waiting for DB
+			if (abortSignal.aborted) return;
 
 			// Ensure at least one database is available (wait if still loading)
 			// 5 second timeout for each database (user can wait, but not forever)
 			const kjvDbResult = await dbEngine.ensureDb('KJV', 5000).catch(() => null);
 			const rstDbResult = await dbEngine.ensureDb('RST', 5000).catch(() => null);
+
+			// Check if search was aborted while waiting for DB
+			if (abortSignal.aborted) return;
 
 			// Convert null to undefined for search function
 			const kjvDb = kjvDbResult ?? undefined;
@@ -106,6 +151,14 @@ export class BibleSearchModal extends Modal {
 				this.plugin.settings.showParallelByDefault,
 				this.plugin.settings.stripMarkup
 			);
+
+			// Check if search was aborted before showing results
+			if (abortSignal.aborted) return;
+
+			// Only show results if this is still the latest query
+			if (query !== this.searchQuery) {
+				return;
+			}
 
 			this.currentResults = result.results;
 			this.parallelResults = result.parallelResults;
@@ -129,8 +182,11 @@ export class BibleSearchModal extends Modal {
 			// Add to search history
 			addToSearchHistory(query);
 		} catch (error) {
-			console.error('Search error:', error);
-			showError(this.resultsContainer, String(error));
+			// Ignore errors if search was aborted
+			if (!abortSignal.aborted) {
+				console.error('Search error:', error);
+				showError(this.resultsContainer, String(error));
+			}
 		}
 	}
 
