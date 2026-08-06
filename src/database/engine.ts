@@ -13,6 +13,11 @@ export class DatabaseEngine {
 	private vault: Vault;
 	private pluginDataDir: string;
 
+	// Track loading state
+	private loadingPromises: Map<'KJV' | 'RST', Promise<DatabaseInstance | null>> = new Map();
+	private isInitializing = false;
+	private initPromise: Promise<void> | null = null;
+
 	constructor(vault: Vault) {
 		this.vault = vault;
 		this.pluginDataDir = '.obsidian/plugins/bible-search-modal/';
@@ -61,8 +66,31 @@ export class DatabaseEngine {
 
 	/**
 	 * Load database from cached file in vault
+	 * Returns a promise that can be tracked for loading status
 	 */
-	async loadDb(translation: 'KJV' | 'RST'): Promise<DatabaseInstance | null> {
+	loadDb(translation: 'KJV' | 'RST'): Promise<DatabaseInstance | null> {
+		// Return cached promise if already loading
+		const existing = this.loadingPromises.get(translation);
+		if (existing) {
+			return existing;
+		}
+
+		// Create loading promise and cache it
+		const loadPromise = this.loadDbInternal(translation);
+		this.loadingPromises.set(translation, loadPromise);
+
+		// Clean up promise cache when done
+		loadPromise.finally(() => {
+			this.loadingPromises.delete(translation);
+		});
+
+		return loadPromise;
+	}
+
+	/**
+	 * Internal database loading logic
+	 */
+	private async loadDbInternal(translation: 'KJV' | 'RST'): Promise<DatabaseInstance | null> {
 		if (!this.sqlJs) {
 			await this.initSqlJs();
 		}
@@ -195,6 +223,38 @@ export class DatabaseEngine {
 	 */
 	getDatabases(): DatabaseInstance[] {
 		return Array.from(this.databases.values());
+	}
+
+	/**
+	 * Ensure database is loaded, waiting if necessary
+	 * Use this before performing searches to guarantee the DB is ready
+	 *
+	 * @param translation - 'KJV' or 'RST'
+	 * @param timeoutMs - Maximum time to wait (default 30 seconds)
+	 * @returns DatabaseInstance if loaded successfully, null if not available
+	 * @throws Error if timeout exceeded
+	 */
+	async ensureDb(translation: 'KJV' | 'RST', timeoutMs = 30000): Promise<DatabaseInstance | null> {
+		// If already loaded, return immediately
+		const cached = this.databases.get(translation);
+		if (cached?.isLoaded) {
+			return cached;
+		}
+
+		// Get loading promise
+		const loadPromise = this.loadingPromises.get(translation);
+		if (loadPromise) {
+			// Wait for the loading promise with timeout
+			return Promise.race([
+				loadPromise,
+				new Promise<null>((_, reject) =>
+					setTimeout(() => reject(new Error(`Database load timeout: ${translation}`)), timeoutMs)
+				),
+			]);
+		}
+
+		// Not cached and not loading, return null
+		return null;
 	}
 
 	/**

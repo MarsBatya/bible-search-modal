@@ -80,14 +80,21 @@ export class BibleSearchModal extends Modal {
 			showLoading(this.resultsContainer);
 
 			const dbEngine = this.plugin.getDbEngine();
-			const kjvDb = dbEngine.getDb('KJV');
-			const rstDb = dbEngine.getDb('RST');
 
-			// Check if at least one database is loaded
-			if ((!kjvDb || !kjvDb.isLoaded) && (!rstDb || !rstDb.isLoaded)) {
+			// Ensure at least one database is available (wait if still loading)
+			// 5 second timeout for each database (user can wait, but not forever)
+			const kjvDbResult = await dbEngine.ensureDb('KJV', 5000).catch(() => null);
+			const rstDbResult = await dbEngine.ensureDb('RST', 5000).catch(() => null);
+
+			// Convert null to undefined for search function
+			const kjvDb = kjvDbResult ?? undefined;
+			const rstDb = rstDbResult ?? undefined;
+
+			// If no database is ready, show error
+			if (!kjvDb && !rstDb) {
 				showError(
 					this.resultsContainer,
-					'No Bible databases loaded. Please configure database URLs and download them in settings.'
+					'No Bible databases available. Please configure and download databases in settings.'
 				);
 				return;
 			}
