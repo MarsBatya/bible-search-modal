@@ -216,6 +216,7 @@ export function searchVersesKeyword(
 	}
 
 	const verses: Verse[] = [];
+	const startTime = performance.now();
 
 	try {
 		// Build WHERE clause with LIKE conditions for each keyword
@@ -260,6 +261,7 @@ export function searchVersesKeyword(
 
 		stmt.bind(params);
 
+		const rowStartTime = performance.now();
 		while (stmt.step()) {
 			const row = stmt.getAsObject() as any;
 			verses.push({
@@ -272,9 +274,11 @@ export function searchVersesKeyword(
 				translation: dbInstance.translation,
 			});
 		}
+		const rowTime = performance.now() - rowStartTime;
 
 		stmt.free();
-		console.log(`[DB Query] Found ${verses.length} verses for keywords: ${keywords.join(', ')}`);
+		const totalTime = performance.now() - startTime;
+		console.log(`[DB Query] Found ${verses.length} verses for keywords: ${keywords.join(', ')} (${totalTime.toFixed(2)}ms total, ${rowTime.toFixed(2)}ms rows)`);
 	} catch (error) {
 		console.error('Error searching verses:', error);
 		console.error('Keywords:', keywords);
