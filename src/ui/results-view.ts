@@ -10,16 +10,18 @@ export interface ResultsViewOptions {
 	highlightMatches: boolean;
 	keywords?: string[];
 	onSelect: (verse: Verse) => void;
+	parallelResults?: Verse[];
 }
 
 /**
- * Render a single verse result
+ * Render a single verse result with optional parallel translation
  */
 export function renderVerseResult(
 	container: HTMLElement,
 	verse: Verse,
 	options: ResultsViewOptions,
-	isSelected: boolean = false
+	isSelected: boolean = false,
+	parallelVerse?: Verse
 ): void {
 	container.empty();
 
@@ -27,8 +29,11 @@ export function renderVerseResult(
 		cls: `bible-verse-result ${isSelected ? 'selected' : ''}`,
 	});
 
+	// Main verse
+	const mainVerseEl = resultEl.createDiv({ cls: 'verse-block main-verse' });
+
 	// Verse reference
-	const refEl = resultEl.createDiv({ cls: 'verse-reference' });
+	const refEl = mainVerseEl.createDiv({ cls: 'verse-reference' });
 	refEl.createEl('span', {
 		cls: 'verse-ref',
 		text: `${verse.book_name_short} ${verse.chapter}:${verse.verse}`,
@@ -39,14 +44,46 @@ export function renderVerseResult(
 	});
 
 	// Verse text
-	let text = options.stripMarkup ? stripMarkup(verse.text) : verse.text;
+	let text = options.stripMarkup ? stripMarkup(verse.text) : (verse.text || '');
 
 	if (options.highlightMatches && options.keywords && options.keywords.length > 0) {
 		text = highlightKeywords(text, options.keywords);
 	}
 
-	const textEl = resultEl.createDiv({ cls: 'verse-text' });
-	textEl.innerHTML = text;
+	const textEl = mainVerseEl.createDiv({ cls: 'verse-text' });
+	// Use textContent for safety, or innerHTML if text contains markup
+	if (text && text.includes('**')) {
+		// Contains markdown-style bold from highlightKeywords
+		textEl.innerHTML = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+	} else {
+		textEl.textContent = text || '(No text available)';
+	}
+
+	// Parallel verse (if available)
+	if (parallelVerse) {
+		const parallelEl = resultEl.createDiv({ cls: 'verse-block parallel-verse' });
+
+		// Parallel verse reference
+		const parallelRefEl = parallelEl.createDiv({ cls: 'verse-reference parallel' });
+		parallelRefEl.createEl('span', {
+			cls: 'verse-ref',
+			text: `${parallelVerse.book_name_short} ${parallelVerse.chapter}:${parallelVerse.verse}`,
+		});
+		parallelRefEl.createEl('span', {
+			cls: `translation-badge ${parallelVerse.translation.toLowerCase()}`,
+			text: parallelVerse.translation,
+		});
+
+		// Parallel verse text
+		let parallelText = options.stripMarkup ? stripMarkup(parallelVerse.text) : (parallelVerse.text || '');
+
+		const parallelTextEl = parallelEl.createDiv({ cls: 'verse-text' });
+		if (parallelText && parallelText.includes('**')) {
+			parallelTextEl.innerHTML = parallelText.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+		} else {
+			parallelTextEl.textContent = parallelText || '(No text available)';
+		}
+	}
 
 	// Add click handler
 	resultEl.addEventListener('click', () => {
@@ -55,7 +92,7 @@ export function renderVerseResult(
 }
 
 /**
- * Render results list with infinite scroll
+ * Render results list with optional parallel translations
  */
 export function renderResultsList(
 	container: HTMLElement,
@@ -76,8 +113,19 @@ export function renderResultsList(
 	const listEl = container.createDiv({ cls: 'verses-list' });
 
 	verses.forEach((verse, index) => {
+		// Find matching parallel verse (same book, chapter, verse)
+		let parallelVerse: Verse | undefined;
+		if (options.parallelResults && options.parallelResults.length > 0) {
+			parallelVerse = options.parallelResults.find(
+				(pv) =>
+					pv.book_number === verse.book_number &&
+					pv.chapter === verse.chapter &&
+					pv.verse === verse.verse
+			);
+		}
+
 		const verseEl = listEl.createDiv();
-		renderVerseResult(verseEl, verse, options, index === selectedIndex);
+		renderVerseResult(verseEl, verse, options, index === selectedIndex, parallelVerse);
 	});
 }
 

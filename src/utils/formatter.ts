@@ -8,7 +8,9 @@ import { Verse } from '../types';
  * Strip markup from verse text
  * Removes: <pb/>, <S>number</S>, and converts <i>text</i>
  */
-export function stripMarkup(text: string): string {
+export function stripMarkup(text: string | null | undefined): string {
+	if (!text) return '';
+
 	return text
 		.replace(/<pb\/>/g, '') // Remove page breaks
 		.replace(/<S>\d+<\/S>/g, '') // Remove Strong's numbers
@@ -51,7 +53,8 @@ export function validateTemplate(template: string): { valid: boolean; error?: st
  * Format verse using template
  */
 export function formatVerse(verse: Verse, template: string, stripMarkupFlag: boolean = true): string {
-	let text = stripMarkupFlag ? stripMarkup(verse.text) : verse.text;
+	const rawText = verse.text || '';
+	let text = stripMarkupFlag ? stripMarkup(rawText) : rawText;
 
 	return template
 		.replace(/{short_name}/g, verse.book_name_short)
@@ -60,23 +63,31 @@ export function formatVerse(verse: Verse, template: string, stripMarkupFlag: boo
 		.replace(/{verse}/g, String(verse.verse))
 		.replace(/{translation}/g, verse.translation)
 		.replace(/{text}/g, text)
-		.replace(/{raw_text}/g, verse.text);
+		.replace(/{raw_text}/g, rawText);
 }
 
 /**
- * Highlight matching keywords in text
+ * Highlight matching keywords in text (case-insensitive)
+ * Works with both Latin and Cyrillic text
  */
-export function highlightKeywords(text: string, keywords: string[]): string {
-	if (keywords.length === 0) return text;
+export function highlightKeywords(text: string | null | undefined, keywords: string[]): string {
+	if (!text || keywords.length === 0) return text || '';
 
 	// Sort keywords by length (longest first) to avoid overlapping replacements
 	const sortedKeywords = [...keywords].sort((a, b) => b.length - a.length);
 
 	let result = text;
 	for (const keyword of sortedKeywords) {
-		// Case-insensitive replacement
-		const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
-		result = result.replace(regex, `**$&**`);
+		try {
+			// Case-insensitive search - highlight any occurrence of the keyword
+			// This works with Latin, Cyrillic, and mixed text
+			// Escape special regex characters in the keyword
+			const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+			const regex = new RegExp(escapedKeyword, 'gi');
+			result = result.replace(regex, `**$&**`);
+		} catch (error) {
+			console.warn(`Failed to highlight keyword "${keyword}":`, error);
+		}
 	}
 
 	return result;

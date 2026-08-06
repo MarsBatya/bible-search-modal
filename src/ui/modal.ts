@@ -20,6 +20,7 @@ export class BibleSearchModal extends Modal {
 	private searchInput!: HTMLInputElement;
 	private resultsContainer!: HTMLElement;
 	private currentResults: Verse[] = [];
+	private parallelResults: Verse[] | undefined = [];
 	private selectedIndex: number = -1;
 	private searchQuery: string = '';
 	private initialQuery: string = '';
@@ -82,10 +83,11 @@ export class BibleSearchModal extends Modal {
 			const kjvDb = dbEngine.getDb('KJV');
 			const rstDb = dbEngine.getDb('RST');
 
-			if (!kjvDb?.isLoaded && !rstDb?.isLoaded) {
+			// Check if at least one database is loaded
+			if ((!kjvDb || !kjvDb.isLoaded) && (!rstDb || !rstDb.isLoaded)) {
 				showError(
 					this.resultsContainer,
-					'No Bible databases loaded. Download them in settings.'
+					'No Bible databases loaded. Please configure database URLs and download them in settings.'
 				);
 				return;
 			}
@@ -99,6 +101,7 @@ export class BibleSearchModal extends Modal {
 			);
 
 			this.currentResults = result.results;
+			this.parallelResults = result.parallelResults;
 
 			if (this.currentResults.length === 0) {
 				showError(this.resultsContainer, 'No verses found');
@@ -113,6 +116,7 @@ export class BibleSearchModal extends Modal {
 				highlightMatches: this.plugin.settings.highlightMatches,
 				keywords,
 				onSelect: (verse) => this.insertVerse(verse),
+				parallelResults: this.parallelResults,
 			});
 
 			// Add to search history

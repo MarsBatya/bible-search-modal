@@ -86,6 +86,26 @@
 	color: inherit;
 }
 
+/* Verse blocks (main and parallel) */
+.verse-block {
+	margin-bottom: 12px;
+}
+
+.verse-block:last-child {
+	margin-bottom: 0;
+}
+
+.parallel-verse {
+	padding-top: 12px;
+	border-top: 1px solid var(--divider-color);
+	opacity: 0.85;
+}
+
+.verse-reference.parallel {
+	margin-top: 8px;
+	margin-bottom: 6px;
+}
+
 /* Verse Reference */
 .verse-reference {
 	display: flex;
@@ -168,6 +188,25 @@
 	color: var(--text-error);
 	border-radius: 4px;
 	margin: 8px;
+	border: 1px solid var(--text-error);
+	font-weight: 500;
+}
+
+/* Ensure error text is always readable */
+@media (prefers-color-scheme: light) {
+	.error {
+		background-color: #fecaca;
+		color: #7f1d1d;
+		border-color: #dc2626;
+	}
+}
+
+@media (prefers-color-scheme: dark) {
+	.error {
+		background-color: #7f1d1d;
+		color: #fecaca;
+		border-color: #f87171;
+	}
 }
 
 /* No Results */

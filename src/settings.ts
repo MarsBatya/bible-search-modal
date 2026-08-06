@@ -16,7 +16,7 @@ export const DEFAULT_SETTINGS: BibleSearchSettings = {
 	kjvDbUrl: 'https://example.com/KJV+.sqlite3',
 	rstDbUrl: 'https://example.com/RST+.sqlite3',
 	verseFormat: getDefaultVerseFormat(),
-	showParallelByDefault: false,
+	showParallelByDefault: true, // Show both translations by default
 	highlightMatches: true,
 	resultsPerPage: 5,
 	stripMarkup: true,

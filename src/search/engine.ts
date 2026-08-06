@@ -68,23 +68,34 @@ export async function search(
 	// Detect language
 	const language = detectLanguage(trimmedQuery);
 
-	// Select database
-	const selectedDb = language === 'KJV' ? kjvDb : rstDb;
+	// Select database - try the detected language first, then fallback to the other
+	let selectedDb = language === 'KJV' ? kjvDb : rstDb;
+	let selectedLanguage = language;
 
+	// If the selected database is not loaded, try the other one
 	if (!selectedDb || !selectedDb.isLoaded) {
-		throw new Error(
-			`${language === 'KJV' ? 'KJV' : 'RST'} database not loaded. Please download it in settings.`
-		);
+		const otherDb = language === 'KJV' ? rstDb : kjvDb;
+		if (otherDb && otherDb.isLoaded) {
+			console.warn(
+				`[Search] ${language} database not loaded, falling back to ${language === 'KJV' ? 'RST' : 'KJV'}`
+			);
+			selectedDb = otherDb;
+			selectedLanguage = language === 'KJV' ? 'RST' : 'KJV';
+		} else {
+			throw new Error(
+				`No Bible database loaded. Please download KJV and/or RST databases in settings.`
+			);
+		}
 	}
 
 	let result: SearchResult;
 
 	// Determine if this is address search or keyword search
 	if (parseReference(trimmedQuery)) {
-		// Address search
+		// Address search - always try both databases for parallel
 		result = addressSearch(trimmedQuery, selectedDb, rstDb, kjvDb, showParallel);
 	} else {
-		// Keyword search
+		// Keyword search - always try both databases for parallel
 		const keywords = splitKeywords(trimmedQuery);
 		result = keywordSearch(trimmedQuery, keywords, selectedDb, rstDb, kjvDb, showParallel);
 	}
@@ -109,6 +120,8 @@ function addressSearch(
 	if (!parsed || parsed.book_number === null) {
 		throw new Error('Invalid Bible reference');
 	}
+
+	console.log(`[Address Search] Query: "${query}", Book#: ${parsed.book_number}, Ch: ${parsed.chapter}, Verses: ${parsed.verseStart}-${parsed.verseEnd}`);
 
 	const results: any[] = [];
 
@@ -141,9 +154,12 @@ function addressSearch(
 
 	// Get parallel verses if enabled
 	let parallelResults: any[] | undefined;
+	console.log(`[Parallel] showParallel=${showParallel}, results.length=${results.length}, selectedDb=${selectedDb.translation}`);
 	if (showParallel && results.length > 0) {
+		// Try to get parallel from the other loaded database
 		const otherDb = selectedDb.translation === 'KJV' ? rstDb : kjvDb;
-		if (otherDb && otherDb.isLoaded) {
+		console.log(`[Parallel] Looking for parallel in: ${selectedDb.translation === 'KJV' ? 'RST' : 'KJV'}, loaded=${otherDb?.isLoaded}`);
+		if (otherDb?.isLoaded) {
 			if (parsed.verseStart !== undefined && parsed.verseEnd !== undefined) {
 				parallelResults = getVerseRange(
 					otherDb,
@@ -168,6 +184,7 @@ function addressSearch(
 		}
 	}
 
+	console.log(`[Address Search] Returning ${results.length} results, ${parallelResults?.length || 0} parallel`);
 	return {
 		results,
 		sourceDb: selectedDb.translation,
