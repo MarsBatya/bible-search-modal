@@ -5,6 +5,15 @@ import { Verse, BookMapping, DatabaseInstance } from '../types';
  */
 
 /**
+ * Capitalize the first character of a string
+ * Handles both Latin and Cyrillic characters
+ */
+function capitalizeFirst(str: string): string {
+	if (str.length === 0) return str;
+	return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+/**
  * Get all books from the database
  */
 export function getBooks(dbInstance: DatabaseInstance): BookMapping[] {
@@ -270,7 +279,21 @@ export function searchVersesKeyword(
 
 	try {
 		// Build WHERE clause with LIKE conditions for each keyword
-		const whereConditions = keywords.map(() => 'v.text LIKE ?').join(' AND ');
+		// Note: sql.js UPPER() doesn't work for Cyrillic, so we use case-insensitive approach
+		// by searching for both original and capitalized versions of keywords
+		const whereConditions = keywords
+			.map((kw) => {
+				// For Cyrillic text, capitalize the first letter to match database
+				const capitalized = capitalizeFirst(kw);
+				// Create OR condition: match either the keyword as-is or capitalized
+				// This handles both "иаков" -> "Иаков" and "grace" searches
+				if (capitalized !== kw) {
+					return `(v.text LIKE ? OR v.text LIKE ?)`;
+				}
+				return `v.text LIKE ?`;
+			})
+			.join(' AND ');
+
 		const query = `
 			SELECT
 				v.book_number, b.short_name, b.long_name, v.chapter, v.verse, v.text
@@ -283,8 +306,16 @@ export function searchVersesKeyword(
 		console.log('[DB Query] Searching for keywords:', keywords);
 		const stmt = dbInstance.db.prepare(query);
 
-		// Bind keywords with prefix matching (word%)
-		const params: (string | number)[] = keywords.map((kw) => `%${kw}%`);
+		// Bind keywords with wildcard matching (%keyword%)
+		// For Cyrillic, add both lowercase and capitalized versions
+		const params: (string | number)[] = [];
+		for (const kw of keywords) {
+			const capitalized = capitalizeFirst(kw);
+			params.push(`%${kw}%`);
+			if (capitalized !== kw) {
+				params.push(`%${capitalized}%`);
+			}
+		}
 		params.push(limit);
 
 		stmt.bind(params);
