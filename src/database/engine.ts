@@ -2,7 +2,6 @@ import { requestUrl, Notice, Vault } from 'obsidian';
 import initSqlJs from 'sql.js';
 import { DatabaseInstance } from '../types';
 import { getWasmBinary } from './wasm-loader';
-import { inspectDatabaseSchema } from './schema-inspector';
 
 /**
  * Database Engine for managing sql.js SQLite instances
@@ -119,10 +118,6 @@ export class DatabaseEngine {
 
 			this.databases.set(translation, instance);
 
-			// Inspect schema for debugging
-			console.log(`[DB] Inspecting cached ${translation} database schema...`);
-			inspectDatabaseSchema(instance);
-
 			console.log(`Loaded ${translation} database from cache`);
 			return instance;
 		} catch (error) {
@@ -184,10 +179,6 @@ export class DatabaseEngine {
 			};
 
 			this.databases.set(translation, instance);
-
-			// Inspect schema for debugging
-			console.log(`[DB] Inspecting downloaded ${translation} database schema...`);
-			inspectDatabaseSchema(instance);
 
 			new Notice(`${translation} database downloaded and cached successfully`);
 			console.log(`[DB] Successfully downloaded and cached ${translation} database`);
