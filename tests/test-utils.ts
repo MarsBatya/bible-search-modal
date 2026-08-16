@@ -2,7 +2,7 @@
  * Test utilities and helpers
  */
 
-import { Verse, BookMapping, DatabaseInstance } from '../src/types';
+import { Verse, BookMapping } from '../src/types';
 
 /**
  * Helper to validate a verse result

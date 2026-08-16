@@ -2,7 +2,7 @@
  * Test if UPPER() function works with Cyrillic in sql.js
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, beforeAll, afterAll } from 'vitest';
 import { DatabaseInstance } from '../src/types';
 import { initializeSQL, loadTestDatabase, getDbPath, closeDatabase } from './setup';
 

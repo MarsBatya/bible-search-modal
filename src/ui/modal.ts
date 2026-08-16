@@ -1,8 +1,8 @@
-import { App, Modal, Editor, MarkdownView, Notice } from 'obsidian';
+import { App, Modal, Notice } from 'obsidian';
 import BibleSearchPlugin from '../main';
-import { Verse, SearchResult } from '../types';
+import { Verse } from '../types';
 import { search } from '../search/engine';
-import { formatVerse, stripMarkup } from '../utils/formatter';
+import { formatVerse } from '../utils/formatter';
 import { splitKeywords } from '../search/parser';
 import { verseKey } from '../utils/verse-key';
 import {

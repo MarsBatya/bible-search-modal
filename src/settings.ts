@@ -39,7 +39,7 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 		containerEl.addClass('bible-search-settings');
 
 		// Database Configuration Section
-		new Setting(containerEl).setName('Database Configuration').setHeading();
+		new Setting(containerEl).setName('Database configuration').setHeading();
 
 		new Setting(containerEl)
 			.setName('KJV Database URL')
@@ -94,10 +94,10 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 			);
 
 		// Search & Display Section
-		new Setting(containerEl).setName('Search & Display').setHeading();
+		new Setting(containerEl).setName('Search & display').setHeading();
 
 		new Setting(containerEl)
-			.setName('Verse Format Template')
+			.setName('Verse format template')
 			.setDesc(
 				'Template for pasted verses. Available: {short_name}, {long_name}, {chapter}, {verse}, {translation}, {text}, {raw_text}'
 			)
@@ -118,7 +118,7 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('Show Parallel Translation')
+			.setName('Show parallel translation')
 			.setDesc('Show parallel verse from other translation alongside results')
 			.addToggle((toggle) =>
 				toggle
@@ -130,7 +130,7 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('Highlight Matches')
+			.setName('Highlight matches')
 			.setDesc('Highlight matching keywords in search results')
 			.addToggle((toggle) =>
 				toggle
@@ -142,7 +142,7 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('Strip Markup')
+			.setName('Strip markup')
 			.setDesc('Remove Strong\'s numbers and formatting tags from verses')
 			.addToggle((toggle) =>
 				toggle
@@ -154,10 +154,10 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 			);
 
 		// UI Preferences Section
-		new Setting(containerEl).setName('UI Preferences').setHeading();
+		new Setting(containerEl).setName('UI preferences').setHeading();
 
 		new Setting(containerEl)
-			.setName('Results Per Page')
+			.setName('Results per page')
 			.setDesc('Number of results to display per page')
 			.addSlider((slider) =>
 				slider

@@ -153,11 +153,11 @@ export function renderVerseResult(
 	if (options.multiSelectMode) {
 		renderCheckbox(refEl, mainChecked);
 	}
-	refEl.createEl('span', {
+	refEl.createSpan({
 		cls: 'verse-ref',
 		text: `${verse.book_name_short} ${verse.chapter}:${verse.verse}`,
 	});
-	refEl.createEl('span', {
+	refEl.createSpan({
 		cls: `translation-badge ${verse.translation.toLowerCase()}`,
 		text: verse.translation,
 	});
@@ -201,11 +201,11 @@ export function renderVerseResult(
 		if (options.multiSelectMode) {
 			renderCheckbox(parallelRefEl, parallelChecked);
 		}
-		parallelRefEl.createEl('span', {
+		parallelRefEl.createSpan({
 			cls: 'verse-ref',
 			text: `${parallelVerse.book_name_short} ${parallelVerse.chapter}:${parallelVerse.verse}`,
 		});
-		parallelRefEl.createEl('span', {
+		parallelRefEl.createSpan({
 			cls: `translation-badge ${parallelVerse.translation.toLowerCase()}`,
 			text: parallelVerse.translation,
 		});
