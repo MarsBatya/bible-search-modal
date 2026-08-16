@@ -1,11 +1,11 @@
 {
 	"id": "bible-search-modal",
 	"name": "Bible Search Modal",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"minAppVersion": "1.0.0",
 	"description": "Search Bible verses with bilingual support (KJV + RST). Insert formatted verses directly into notes.",
-	"author": "Bible Search",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"author": "MarsBatya",
+	"authorUrl": "https://t.me/mars_hall",
+	"fundingUrl": "https://marsbatya.github.io/crypto_support_page",
 	"isDesktopOnly": false
 }
