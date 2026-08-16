@@ -16,11 +16,6 @@ export default class BibleSearchPlugin extends Plugin {
 		// Initialize database engine
 		this.dbEngine = getEngineInstance(this.app.vault);
 
-		// Add ribbon icon
-		this.addRibbonIcon('book', 'Bible Search', () => {
-			this.openBibleSearch();
-		});
-
 		// Add commands
 		this.addCommand({
 			id: 'bible-search-open',
@@ -28,6 +23,7 @@ export default class BibleSearchPlugin extends Plugin {
 			callback: () => {
 				this.openBibleSearch();
 			},
+			icon: 'book-copy',
 		});
 
 		this.addCommand({
@@ -39,6 +35,7 @@ export default class BibleSearchPlugin extends Plugin {
 					this.openBibleSearchWithQuery(selection);
 				}
 			},
+			icon: 'whole-word',
 		});
 
 		// Add settings tab
