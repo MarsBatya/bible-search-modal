@@ -333,6 +333,92 @@ export class BibleSearchModal extends Modal {
 	}
 
 	/**
+	 * Copy a single verse to the clipboard, formatted using the configured
+	 * template. Unlike inserting, this doesn't require an active editor and
+	 * doesn't close the modal - handy for browsing several verses and
+	 * copying each one out to paste elsewhere.
+	 */
+	private async copyVerse(verse: Verse) {
+		const formatted = formatVerse(verse, this.plugin.settings.verseFormat, this.plugin.settings.stripMarkup);
+		const copied = await this.writeToClipboard(formatted);
+		if (copied) {
+			new Notice(`Copied: ${verse.book_name_short} ${verse.chapter}:${verse.verse}`);
+		}
+	}
+
+	/**
+	 * Copy all multi-selected verses to the clipboard, each on its own line -
+	 * same formatting and ordering as insertSelectedVerses(), but doesn't
+	 * clear the selection or close the modal
+	 */
+	private async copySelectedVerses() {
+		const verses = this.getOrderedSelectedVerses();
+		if (verses.length === 0) {
+			return;
+		}
+
+		const formatted = verses
+			.map((verse) =>
+				formatVerse(verse, this.plugin.settings.verseFormat, this.plugin.settings.stripMarkup)
+			)
+			.join('\n');
+
+		const copied = await this.writeToClipboard(formatted);
+		if (copied) {
+			new Notice(`Copied ${verses.length} verse${verses.length === 1 ? '' : 's'}`);
+		}
+	}
+
+	/**
+	 * Write text to the system clipboard, showing a Notice on failure.
+	 * Returns whether it succeeded, so callers can skip their own success
+	 * Notice without duplicating the try/catch.
+	 */
+	private async writeToClipboard(text: string): Promise<boolean> {
+		try {
+			await navigator.clipboard.writeText(text);
+			return true;
+		} catch (error) {
+			console.error('Failed to copy to clipboard:', error);
+			new Notice('Failed to copy to clipboard');
+			return false;
+		}
+	}
+
+	/**
+	 * Re-run the search as a full-chapter lookup for this verse's book and
+	 * chapter (reusing the address-search chapter path - typing e.g. "John 3"
+	 * already returns the whole chapter), then scroll to and highlight the
+	 * verse that was expanded from, so it opens in context instead of at the
+	 * top of the chapter.
+	 */
+	private async expandToChapter(verse: Verse) {
+		if (this.searchDebounceTimer !== null) {
+			clearTimeout(this.searchDebounceTimer);
+			this.searchDebounceTimer = null;
+		}
+
+		const query = `${verse.book_name_short} ${verse.chapter}`;
+		this.searchInput.value = query;
+		this.searchQuery = query;
+		showLoading(this.resultsContainer);
+
+		await this.performSearch(query);
+
+		const index = this.currentResults.findIndex(
+			(v) =>
+				v.translation === verse.translation &&
+				v.book_number === verse.book_number &&
+				v.chapter === verse.chapter &&
+				v.verse === verse.verse
+		);
+		if (index !== -1) {
+			this.selectedIndex = index;
+			this.updateResultsSelection();
+		}
+	}
+
+	/**
 	 * Render the current results, reflecting multi-select state
 	 */
 	private renderResults() {
@@ -352,6 +438,8 @@ export class BibleSearchModal extends Modal {
 				multiSelectMode: this.multiSelectMode,
 				isSelected: (verse) => this.selectedVerseKeys.has(this.verseKey(verse)),
 				onToggleSelect: (verse) => this.handleToggleSelect(verse),
+				onCopy: (verse) => this.copyVerse(verse),
+				onExpand: (verse) => this.expandToChapter(verse),
 			},
 			this.selectedIndex
 		);
@@ -386,7 +474,8 @@ export class BibleSearchModal extends Modal {
 			this.multiSelectBar,
 			this.selectedVerseKeys.size,
 			() => this.insertSelectedVerses(),
-			() => this.toggleMultiSelectMode()
+			() => this.toggleMultiSelectMode(),
+			() => this.copySelectedVerses()
 		);
 	}
 

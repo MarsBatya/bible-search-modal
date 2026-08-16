@@ -6,7 +6,7 @@ Comprehensive test suite for database queries and utilities, independent of Obsi
 
 This test suite validates all database operations without needing the Obsidian plugin environment. Tests can be run with `npm test` or `npm run test:run`.
 
-**Status: ✅ 213/213 tests passing**
+**Status: ✅ 217/217 tests passing**
 
 ## Running Tests
 
@@ -20,13 +20,14 @@ npm run test:run
 
 ## Test Files
 
-### `database.queries.test.ts` (43 tests)
+### `database.queries.test.ts` (46 tests)
 Tests all database query functions:
 - **getBooks()**: Retrieve all 66 Bible books
 - **getVerse()**: Get single verses by book/chapter/verse
 - **getChapter()**: Get all verses in a chapter
 - **getVerseRange()**: Get verse ranges (e.g., Gen 1:1-5)
 - **searchVersesKeyword()**: Search verses by keywords (AND logic)
+- **getRandomVerse()**: Random verse picking, used by the "Insert random verse" command
 
 **Key Test Categories:**
 - ✅ Correct data retrieval
@@ -44,7 +45,7 @@ Tests database loading and initialization:
 - ✅ Query execution (SELECT, JOIN, WHERE, LIKE, BETWEEN)
 - ✅ Prepared statements
 
-### `formatter.test.ts` (34 tests)
+### `formatter.test.ts` (35 tests)
 Tests verse formatting and utility functions:
 - **stripMarkup()**: Remove XML markup from verse text
   - Removes `<pb/>` (page breaks)

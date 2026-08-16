@@ -203,6 +203,47 @@ export function getVerseRange(
 }
 
 /**
+ * Get a uniformly random verse from the database.
+ * Picks a random offset in [0, rowCount) and reads that row in rowid order -
+ * cheap even for a ~31k row table (a full COUNT(*) plus an indexed offset
+ * read, no need to materialize or shuffle anything).
+ */
+export function getRandomVerse(dbInstance: DatabaseInstance): Verse | null {
+	if (!dbInstance.isLoaded) {
+		throw new Error('Database not loaded');
+	}
+
+	try {
+		const countStmt = dbInstance.db.prepare('SELECT COUNT(*) as count FROM verses');
+		countStmt.step();
+		const { count } = countStmt.getAsObject() as Record<string, number>;
+		countStmt.free();
+
+		if (!count || count <= 0) {
+			return null;
+		}
+
+		const offset = Math.floor(Math.random() * count);
+
+		const stmt = dbInstance.db.prepare(
+			`${VERSE_SELECT} ORDER BY v.rowid LIMIT 1 OFFSET ?`
+		);
+		stmt.bind([offset]);
+
+		let result: Verse | null = null;
+		if (stmt.step()) {
+			result = mapRowToVerse(stmt.getAsObject(), dbInstance.translation);
+		}
+		stmt.free();
+
+		return result;
+	} catch (error) {
+		console.error('Error fetching random verse:', error);
+		return null;
+	}
+}
+
+/**
  * Search verses by keyword(s)
  * Multiple keywords use AND logic - all must be present
  */

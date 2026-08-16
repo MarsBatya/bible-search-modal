@@ -20,7 +20,15 @@ A powerful Obsidian plugin for searching and inserting Bible verses with bilingu
 - Customizable verse formatting templates
 - Strip markup (remove Strong's numbers, page breaks)
 - Direct paste into notes from search results
+- Copy any verse (or your whole multi-select) to the clipboard instead of inserting - no active note required
 - Keyboard navigation (Up/Down/Enter)
+
+🎲 **Random Verse**
+- "Insert random verse" command drops a random verse straight into the active note - no search modal needed
+- Picks from whichever translation(s) are loaded
+
+📖 **Context**
+- "Expand to chapter" on any result jumps to its full chapter, scrolled to and highlighting that verse
 
 ⚙️ **Offline & Configurable**
 - WASM-based SQLite databases (sql.js) - works on desktop & mobile
@@ -106,6 +114,12 @@ love               → All verses containing "love"
 - **Arrow Up/Down**: Navigate through search results
 - **Enter**: Insert selected verse into current note
 - **Escape**: Close search modal
+- **Copy icon** (on any verse): Copy that verse to the clipboard without inserting it or closing the modal
+- **Expand icon** (on any verse): Jump to its full chapter, scrolled to and highlighting that verse
+
+### Random Verse
+
+**Command Palette** → "Insert random verse" drops a random verse straight into the note at your cursor, using your configured format template. Picks between KJV and RST when both are loaded. Requires an active note - shows a notice if none is open.
 
 ### Keyboard Navigation Examples
 

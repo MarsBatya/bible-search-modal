@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { getBooks, getVerse, getChapter, getVerseRange, searchVersesKeyword } from '../src/database/queries';
+import { getBooks, getVerse, getChapter, getVerseRange, searchVersesKeyword, getRandomVerse } from '../src/database/queries';
 import { DatabaseInstance } from '../src/types';
 import { initializeSQL, loadTestDatabase, getDbPath, closeDatabase } from './setup';
 import { isValidVerse, isValidBook } from './test-utils';
@@ -324,6 +324,38 @@ describe('Database Queries', () => {
 			verses.forEach((v) => {
 				expect(isValidVerse(v)).toBe(true);
 			});
+		});
+	});
+
+	describe('getRandomVerse()', () => {
+		it('should return a valid, real verse', () => {
+			const verse = getRandomVerse(kjvDb);
+			expect(verse).not.toBeNull();
+			expect(isValidVerse(verse!)).toBe(true);
+
+			// Cross-check: the picked reference actually resolves via getVerse
+			const lookedUp = getVerse(kjvDb, verse!.book_number, verse!.chapter, verse!.verse);
+			expect(lookedUp).not.toBeNull();
+			expect(lookedUp!.text).toBe(verse!.text);
+		});
+
+		it('should tag the verse with the source translation', () => {
+			const kjvVerse = getRandomVerse(kjvDb);
+			expect(kjvVerse!.translation).toBe('KJV');
+
+			const rstVerse = getRandomVerse(rstDb);
+			expect(rstVerse!.translation).toBe('RST');
+		});
+
+		it('should pick varied verses across repeated calls, not the same one every time', () => {
+			// Not a statistical proof of uniformity - just guards against an
+			// off-by-one or ordering bug that always lands on the same row
+			const refs = new Set<string>();
+			for (let i = 0; i < 30; i++) {
+				const v = getRandomVerse(kjvDb);
+				refs.add(`${v!.book_number}:${v!.chapter}:${v!.verse}`);
+			}
+			expect(refs.size).toBeGreaterThan(1);
 		});
 	});
 

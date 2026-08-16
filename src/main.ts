@@ -1,6 +1,9 @@
 import { Notice, Plugin, MarkdownView, MarkdownFileInfo, Editor } from 'obsidian';
 import { DEFAULT_SETTINGS, BibleSearchSettings, BibleSearchSettingTab } from './settings';
 import { DatabaseEngine, getEngineInstance } from './database/engine';
+import { getRandomVerse } from './database/queries';
+import { formatVerse } from './utils/formatter';
+import { DatabaseInstance } from './types';
 import { BibleSearchModal } from './ui/modal';
 
 export default class BibleSearchPlugin extends Plugin {
@@ -41,6 +44,15 @@ export default class BibleSearchPlugin extends Plugin {
 				}
 			},
 			icon: 'whole-word',
+		});
+
+		this.addCommand({
+			id: 'bible-random-verse',
+			name: 'Insert random verse',
+			callback: () => {
+				this.insertRandomVerse();
+			},
+			icon: 'shuffle',
 		});
 
 		// Add settings tab
@@ -104,6 +116,41 @@ export default class BibleSearchPlugin extends Plugin {
 		const modal = new BibleSearchModal(this.app, this);
 		modal.setInitialQuery(query);
 		modal.open();
+	}
+
+	/**
+	 * Pick a random verse from whichever database(s) are loaded (a coin
+	 * flip between KJV and RST when both are available) and insert it
+	 * directly at the cursor, matching the format template - no modal.
+	 */
+	private insertRandomVerse() {
+		const editor = this.app.workspace.activeEditor?.editor;
+		if (!editor) {
+			new Notice('No active editor - open a note first');
+			return;
+		}
+
+		const dbEngine = this.getDbEngine();
+		const loadedDbs: DatabaseInstance[] = (['KJV', 'RST'] as const)
+			.map((translation) => dbEngine.getDb(translation))
+			.filter((db): db is DatabaseInstance => !!db?.isLoaded);
+
+		if (loadedDbs.length === 0) {
+			new Notice('No Bible databases loaded. Please configure and download databases in settings.');
+			return;
+		}
+
+		const db = loadedDbs[Math.floor(Math.random() * loadedDbs.length)]!;
+		const verse = getRandomVerse(db);
+		if (!verse) {
+			new Notice('Failed to pick a random verse');
+			return;
+		}
+
+		const formatted = formatVerse(verse, this.settings.verseFormat, this.settings.stripMarkup);
+		editor.replaceSelection(formatted);
+
+		new Notice(`Inserted: ${verse.book_name_short} ${verse.chapter}:${verse.verse}`);
 	}
 
 	/**

@@ -204,6 +204,35 @@
 	color: var(--text-normal);
 }
 
+/* Per-verse actions (copy, expand to chapter) - pushed to the right edge of
+   the reference row, dimmed until the row is hovered so they don't compete
+   with the reference/translation badge for attention */
+.verse-actions {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	margin-left: auto;
+	opacity: 0;
+	transition: opacity 0.15s ease;
+}
+
+.bible-verse-result:hover .verse-actions {
+	opacity: 1;
+}
+
+.verse-action-copy,
+.verse-action-expand {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+}
+
+.bible-verse-result.selected .verse-actions {
+	opacity: 1;
+	color: inherit;
+}
+
 .verse-ref {
 	font-size: 14px;
 }
@@ -443,6 +472,12 @@
 	.translation-badge {
 		font-size: 10px;
 		padding: 2px 4px;
+	}
+
+	/* No hover state on touch devices - keep the copy/expand icons visible
+	   rather than hiding an action behind a gesture that doesn't exist */
+	.verse-actions {
+		opacity: 1;
 	}
 }
 

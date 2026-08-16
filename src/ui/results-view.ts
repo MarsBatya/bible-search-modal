@@ -20,6 +20,13 @@ export interface ResultsViewOptions {
 	multiSelectMode?: boolean;
 	isSelected?: (verse: Verse) => boolean;
 	onToggleSelect?: (verse: Verse) => void;
+	// Copies the verse to the clipboard without inserting it or closing the
+	// modal - useful when there's no active editor, or you just want it
+	// elsewhere. Omitted -> no copy button rendered.
+	onCopy?: (verse: Verse) => void;
+	// Re-runs the search as a full-chapter lookup for this verse's book and
+	// chapter, then scrolls to and highlights it. Omitted -> no expand button.
+	onExpand?: (verse: Verse) => void;
 }
 
 /**
@@ -41,6 +48,42 @@ function renderVerseText(container: HTMLElement, text: string): void {
 function renderCheckbox(refEl: HTMLElement, checked: boolean): void {
 	const checkbox = refEl.createDiv({ cls: `verse-checkbox${checked ? ' checked' : ''}` });
 	setIcon(checkbox, checked ? 'check' : 'circle');
+}
+
+/**
+ * Render the per-verse action icons (copy, expand to chapter), if their
+ * handlers were provided. Each has its own click handler with
+ * stopPropagation so it doesn't also trigger the verse row's own
+ * select/insert click handler.
+ */
+function renderVerseActions(refEl: HTMLElement, verse: Verse, options: ResultsViewOptions): void {
+	if (!options.onCopy && !options.onExpand) return;
+
+	const actionsEl = refEl.createDiv({ cls: 'verse-actions' });
+
+	if (options.onCopy) {
+		const copyButton = actionsEl.createEl('button', {
+			cls: 'clickable-icon verse-action-copy',
+			attr: { 'aria-label': 'Copy verse' },
+		});
+		setIcon(copyButton, 'copy');
+		copyButton.addEventListener('click', (e) => {
+			e.stopPropagation();
+			options.onCopy?.(verse);
+		});
+	}
+
+	if (options.onExpand) {
+		const expandButton = actionsEl.createEl('button', {
+			cls: 'clickable-icon verse-action-expand',
+			attr: { 'aria-label': 'View full chapter' },
+		});
+		setIcon(expandButton, 'maximize-2');
+		expandButton.addEventListener('click', (e) => {
+			e.stopPropagation();
+			options.onExpand?.(verse);
+		});
+	}
 }
 
 /**
@@ -79,6 +122,7 @@ export function renderVerseResult(
 		cls: `translation-badge ${verse.translation.toLowerCase()}`,
 		text: verse.translation,
 	});
+	renderVerseActions(refEl, verse, options);
 
 	// Verse text
 	let text = options.stripMarkup ? stripMarkup(verse.text) : (verse.text || '');
@@ -125,6 +169,7 @@ export function renderVerseResult(
 			cls: `translation-badge ${parallelVerse.translation.toLowerCase()}`,
 			text: parallelVerse.translation,
 		});
+		renderVerseActions(parallelRefEl, parallelVerse, options);
 
 		// Parallel verse text
 		let parallelText = options.stripMarkup ? stripMarkup(parallelVerse.text) : (parallelVerse.text || '');
@@ -235,13 +280,14 @@ export function createMultiSelectToggle(
 
 /**
  * Create (or update) the bar shown in multi-select mode with the selection
- * count and Insert/Cancel actions
+ * count and Copy/Insert/Cancel actions
  */
 export function renderMultiSelectBar(
 	container: HTMLElement,
 	selectedCount: number,
 	onInsert: () => void,
-	onCancel: () => void
+	onCancel: () => void,
+	onCopy: () => void
 ): void {
 	container.empty();
 
@@ -254,6 +300,12 @@ export function renderMultiSelectBar(
 
 	const cancelButton = actionsEl.createEl('button', { text: 'Cancel' });
 	cancelButton.addEventListener('click', onCancel);
+
+	const copyButton = actionsEl.createEl('button', {
+		text: `Copy${selectedCount > 0 ? ` (${selectedCount})` : ''}`,
+	});
+	copyButton.disabled = selectedCount === 0;
+	copyButton.addEventListener('click', onCopy);
 
 	const insertButton = actionsEl.createEl('button', {
 		cls: 'mod-cta',
