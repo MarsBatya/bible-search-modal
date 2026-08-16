@@ -24,7 +24,7 @@ export class BibleSearchModal extends Modal {
 	private multiSelectBar!: HTMLElement;
 	private resultsContainer!: HTMLElement;
 	private currentResults: Verse[] = [];
-	private parallelResults: Verse[] | undefined;
+	private parallelResults: (Verse | undefined)[] | undefined;
 	private currentKeywords: string[] = [];
 	private selectedIndex: number = -1;
 	private searchQuery: string = '';
@@ -420,21 +420,18 @@ export class BibleSearchModal extends Modal {
 	private getOrderedSelectedVerses(): Verse[] {
 		const ordered: Verse[] = [];
 
-		for (const verse of this.currentResults) {
+		this.currentResults.forEach((verse, index) => {
 			if (this.selectedVerseKeys.has(this.verseKey(verse))) {
 				ordered.push(verse);
 			}
 
-			const parallel = this.parallelResults?.find(
-				(pv) =>
-					pv.book_number === verse.book_number &&
-					pv.chapter === verse.chapter &&
-					pv.verse === verse.verse
-			);
+			// parallelResults is index-aligned with currentResults - see
+			// SearchResult.parallelResults
+			const parallel = this.parallelResults?.[index];
 			if (parallel && this.selectedVerseKeys.has(this.verseKey(parallel))) {
 				ordered.push(parallel);
 			}
-		}
+		});
 
 		return ordered;
 	}

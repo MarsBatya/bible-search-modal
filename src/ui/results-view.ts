@@ -11,7 +11,10 @@ export interface ResultsViewOptions {
 	highlightMatches: boolean;
 	keywords?: string[];
 	onSelect: (verse: Verse) => void;
-	parallelResults?: Verse[];
+	// Index-aligned with the verses passed to renderResultsList - see
+	// SearchResult.parallelResults for why this can't be re-matched by
+	// book/chapter/verse equality
+	parallelResults?: (Verse | undefined)[];
 	// Multi-select mode: tapping a verse toggles it instead of inserting it
 	// immediately, so several verses can be picked and pasted together
 	multiSelectMode?: boolean;
@@ -165,16 +168,10 @@ export function renderResultsList(
 	const listEl = container.createDiv({ cls: 'verses-list' });
 
 	verses.forEach((verse, index) => {
-		// Find matching parallel verse (same book, chapter, verse)
-		let parallelVerse: Verse | undefined;
-		if (options.parallelResults && options.parallelResults.length > 0) {
-			parallelVerse = options.parallelResults.find(
-				(pv) =>
-					pv.book_number === verse.book_number &&
-					pv.chapter === verse.chapter &&
-					pv.verse === verse.verse
-			);
-		}
+		// parallelResults is index-aligned with verses (not re-matched by
+		// book/chapter/verse - for Psalms/Job/Song of Solomon a correctly
+		// paired verse can have different chapter/verse numbers entirely)
+		const parallelVerse = options.parallelResults?.[index];
 
 		const verseEl = listEl.createDiv();
 		renderVerseResult(verseEl, verse, options, index === selectedIndex, parallelVerse);

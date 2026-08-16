@@ -1,6 +1,7 @@
 import { SearchResult, DatabaseInstance, Verse } from '../types';
 import { detectLanguage } from '../utils/language';
 import { parseReference, splitKeywords } from './parser';
+import { convertVersification } from '../utils/versification';
 import { debug } from '../utils/logger';
 import {
 	getVerse,
@@ -119,6 +120,34 @@ function resolveOtherDb(
 }
 
 /**
+ * Find a verse's counterpart in the other translation, accounting for the
+ * Psalms/Job/Song of Solomon numbering difference between the Western and
+ * Synodal (Russian Orthodox) traditions (see utils/versification.ts).
+ * Returns undefined if no counterpart verse exists.
+ */
+function getParallelVerse(verse: Verse, otherDb: DatabaseInstance): Verse | undefined {
+	const mapped = convertVersification(
+		verse.book_number,
+		verse.chapter,
+		verse.verse,
+		verse.translation === 'RST',
+		otherDb.russianNumbering
+	);
+	if (!mapped) {
+		return undefined;
+	}
+	return getVerse(otherDb, verse.book_number, mapped.chapter, mapped.verse) ?? undefined;
+}
+
+/**
+ * Find the counterpart of each verse in `verses` within `otherDb`, in the
+ * same order - index-aligned with `verses` (see SearchResult.parallelResults)
+ */
+function getParallelVerses(verses: Verse[], otherDb: DatabaseInstance): (Verse | undefined)[] {
+	return verses.map((verse) => getParallelVerse(verse, otherDb));
+}
+
+/**
  * Search by Bible address (e.g., "John 3:16")
  */
 function addressSearch(
@@ -164,39 +193,21 @@ function addressSearch(
 		results.push(...verses);
 	}
 
-	// Get parallel verses if enabled
-	let parallelResults: Verse[] | undefined;
+	// Get parallel verses if enabled. Each verse is mapped individually
+	// (rather than fetching a single target chapter/range) so that a source
+	// chapter or range spanning a Psalms/Job merge-or-split boundary on the
+	// other side still resolves correctly verse-by-verse.
+	let parallelResults: (Verse | undefined)[] | undefined;
 	debug(`[Parallel] showParallel=${showParallel}, results.length=${results.length}, selectedDb=${selectedDb.translation}`);
 	if (showParallel && results.length > 0) {
-		// Try to get parallel from the other loaded database
 		const otherDb = resolveOtherDb(selectedDb, rstDb, kjvDb);
 		debug(`[Parallel] Looking for parallel in: ${selectedDb.translation === 'KJV' ? 'RST' : 'KJV'}, loaded=${otherDb?.isLoaded}`);
 		if (otherDb?.isLoaded) {
-			if (parsed.verseStart !== undefined && parsed.verseEnd !== undefined) {
-				parallelResults = getVerseRange(
-					otherDb,
-					parsed.book_number,
-					parsed.chapter!,
-					parsed.verseStart,
-					parsed.verseEnd
-				);
-			} else if (parsed.verseStart !== undefined) {
-				const verse = getVerse(
-					otherDb,
-					parsed.book_number,
-					parsed.chapter!,
-					parsed.verseStart
-				);
-				if (verse) {
-					parallelResults = [verse];
-				}
-			} else if (parsed.chapter !== undefined) {
-				parallelResults = getChapter(otherDb, parsed.book_number, parsed.chapter);
-			}
+			parallelResults = getParallelVerses(results, otherDb);
 		}
 	}
 
-	debug(`[Address Search] Returning ${results.length} results, ${parallelResults?.length || 0} parallel`);
+	debug(`[Address Search] Returning ${results.length} results, ${parallelResults?.filter(Boolean).length || 0} parallel`);
 	return {
 		results,
 		sourceDb: selectedDb.translation,
@@ -219,25 +230,14 @@ function keywordSearch(
 ): SearchResult {
 	const results = searchVersesKeyword(selectedDb, keywords);
 
-	// Get parallel results if enabled
-	let parallelResults: Verse[] | undefined;
+	// Get parallel results if enabled. For keyword search parallel, fetch by
+	// reference (mapped through the versification table when needed) rather
+	// than by keyword, since the keywords are in the source language.
+	let parallelResults: (Verse | undefined)[] | undefined;
 	if (showParallel && results.length > 0) {
 		const otherDb = resolveOtherDb(selectedDb, rstDb, kjvDb);
 		if (otherDb && otherDb.isLoaded) {
-			// For keyword search parallel, fetch the same verses by their references
-			// (not by keyword, since the keywords are in the source language)
-			parallelResults = [];
-			for (const result of results) {
-				const parallelVerse = getVerse(
-					otherDb,
-					result.book_number,
-					result.chapter,
-					result.verse
-				);
-				if (parallelVerse) {
-					parallelResults.push(parallelVerse);
-				}
-			}
+			parallelResults = getParallelVerses(results, otherDb);
 		}
 	}
 

@@ -1,3 +1,4 @@
+import initSqlJs from 'sql.js';
 import { Verse, BookMapping, DatabaseInstance } from '../types';
 import { debug } from '../utils/logger';
 
@@ -12,6 +13,29 @@ import { debug } from '../utils/logger';
 function capitalizeFirst(str: string): string {
 	if (str.length === 0) return str;
 	return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+/**
+ * Read the `russian_numbering` flag from a module's `info` table.
+ * Used to detect whether this translation numbers Psalms/Job/Song of
+ * Solomon using the Synodal (Orthodox) tradition instead of the standard
+ * one - see utils/versification.ts. Defaults to false (standard numbering)
+ * if the row is missing.
+ */
+export function getRussianNumbering(db: initSqlJs.Database): boolean {
+	try {
+		const stmt = db.prepare(`SELECT value FROM info WHERE name = 'russian_numbering'`);
+		let result = false;
+		if (stmt.step()) {
+			const row = stmt.getAsObject() as Record<string, unknown>;
+			result = row.value === 'true';
+		}
+		stmt.free();
+		return result;
+	} catch (error) {
+		console.error('Error reading russian_numbering flag:', error);
+		return false;
+	}
 }
 
 /**

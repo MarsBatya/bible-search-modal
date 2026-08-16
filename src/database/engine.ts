@@ -2,6 +2,7 @@ import { requestUrl, Notice, Vault } from 'obsidian';
 import initSqlJs from 'sql.js';
 import { DatabaseInstance } from '../types';
 import { getWasmBinary } from './wasm-loader';
+import { getRussianNumbering } from './queries';
 import { debug } from '../utils/logger';
 
 /**
@@ -124,6 +125,7 @@ export class DatabaseEngine {
 				db,
 				translation,
 				isLoaded: true,
+				russianNumbering: getRussianNumbering(db),
 			};
 
 			this.databases.set(translation, instance);
@@ -183,6 +185,7 @@ export class DatabaseEngine {
 				db,
 				translation,
 				isLoaded: true,
+				russianNumbering: getRussianNumbering(db),
 			};
 
 			this.databases.set(translation, instance);

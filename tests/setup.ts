@@ -6,6 +6,7 @@ import initSqlJs from 'sql.js';
 import fs from 'fs';
 import path from 'path';
 import { DatabaseInstance } from '../src/types';
+import { getRussianNumbering } from '../src/database/queries';
 
 let SQL: any = null;
 
@@ -35,6 +36,7 @@ export async function loadTestDatabase(
 		db,
 		translation,
 		isLoaded: true,
+		russianNumbering: getRussianNumbering(db),
 	};
 }
 

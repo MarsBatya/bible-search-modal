@@ -6,7 +6,7 @@ Comprehensive test suite for database queries and utilities, independent of Obsi
 
 This test suite validates all database operations without needing the Obsidian plugin environment. Tests can be run with `npm test` or `npm run test:run`.
 
-**Status: ✅ 188/190 tests passing**
+**Status: ✅ 213/213 tests passing**
 
 ## Running Tests
 
@@ -96,6 +96,21 @@ queries together:
 - Database fallback when the detected-language database isn't loaded
 - Error handling when no database is available
 - Result caching (including that a cached hit doesn't touch the databases again)
+
+### `versification.test.ts` (23 tests)
+Tests the Psalms/Job/Song of Solomon chapter-and-verse mapping (`src/utils/versification.ts`)
+between the Western (KJV) and Synodal/Russian Orthodox (RST) numbering traditions - e.g. KJV
+Psalm 23 ("The LORD is my shepherd") is RST Psalm 22:
+- Pure unit tests for known correspondence points (chapter merges/splits, the
+  within-chapter drift from RST counting a psalm's superscription as its own verse)
+- **Data-driven validation against the real databases**: for every verse in Psalms, Job,
+  and Song of Solomon, maps KJV → RST and compares the Strong's concordance numbers
+  (`<S>NNNN</S>`) embedded in each verse's text via Jaccard similarity - a correctly-mapped
+  pair shares most of its Strong's numbers, a mismatched pair shares almost none. Also
+  compares against naive (unmapped) same-chapter/verse pairing to prove the mapping is a
+  real improvement, not just "above some threshold": Psalms goes from 0.05 average
+  similarity (unmapped) to 0.80 (mapped); Song of Solomon from 0.59 to 0.79; Job (which
+  barely differs from KJV numbering) from 0.72 to 0.76.
 
 ## Test Setup
 
