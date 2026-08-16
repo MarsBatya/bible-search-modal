@@ -13,8 +13,12 @@
 	z-index: 10;
 }
 
-/* Search Input Container */
-.search-input-container {
+/* Search Input Container
+   Note: deliberately not named "search-input-container" - that's a class
+   name Obsidian's own core CSS decorates with a search icon and pill-shaped
+   input assuming its own internal DOM structure, which clashed badly with
+   ours (misplaced icon, wrong input shape) */
+.bible-search-bar {
 	padding: 12px;
 	border-bottom: 1px solid var(--divider-color);
 	display: flex;
@@ -343,8 +347,24 @@
 		height: 100%;
 	}
 
+	/* Let the results list fill all remaining space down to the bottom of
+	   the modal instead of stopping at a fixed height - a fixed height here
+	   left a large dead gap below the results that looked like something
+	   was covering them */
+	.bible-search-modal .modal-content {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+	}
+
+	.bible-search-bar {
+		flex-shrink: 0;
+	}
+
 	.results-container {
-		max-height: 60vh;
+		flex: 1;
+		min-height: 0;
+		max-height: none;
 	}
 
 	.bible-verse-result {

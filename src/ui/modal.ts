@@ -50,7 +50,7 @@ export class BibleSearchModal extends Modal {
 		contentEl.empty();
 
 		// Create search input
-		const inputContainer = contentEl.createDiv({ cls: 'search-input-container' });
+		const inputContainer = contentEl.createDiv({ cls: 'bible-search-bar' });
 		this.searchInput = createSearchInput(
 			inputContainer,
 			(value) => this.handleSearch(value),
