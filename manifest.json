@@ -1,7 +1,7 @@
 {
 	"id": "bible-search-modal",
 	"name": "Bible Search Modal",
-	"version": "1.1.0",
+	"version": "1.1.1",
 	"minAppVersion": "1.0.0",
 	"description": "Search Bible verses with bilingual support (KJV + RST). Insert formatted verses directly into notes.",
 	"author": "MarsBatya",
