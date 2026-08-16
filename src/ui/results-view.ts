@@ -1,3 +1,4 @@
+import { setIcon } from 'obsidian';
 import { Verse } from '../types';
 import { stripMarkup, highlightKeywords } from '../utils/formatter';
 
@@ -142,12 +143,13 @@ export function renderResultsList(
 }
 
 /**
- * Create search input element
+ * Create search input element, with a button to clear it
  */
 export function createSearchInput(
 	container: HTMLElement,
 	onInput: (value: string) => void,
 	onKeyDown: (event: KeyboardEvent) => void,
+	onClear: () => void,
 	placeholder: string = 'Search Bible...'
 ): HTMLInputElement {
 	const input = container.createEl('input', {
@@ -161,6 +163,18 @@ export function createSearchInput(
 	});
 
 	input.addEventListener('keydown', onKeyDown);
+
+	const clearButton = container.createEl('button', {
+		cls: 'clickable-icon bible-search-clear',
+		attr: { 'aria-label': 'Clear search' },
+	});
+	setIcon(clearButton, 'x');
+
+	clearButton.addEventListener('click', () => {
+		input.value = '';
+		input.focus();
+		onClear();
+	});
 
 	return input;
 }

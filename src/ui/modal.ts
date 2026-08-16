@@ -55,6 +55,7 @@ export class BibleSearchModal extends Modal {
 			inputContainer,
 			(value) => this.handleSearch(value),
 			(event) => this.handleKeyDown(event),
+			() => this.handleClear(),
 			'Search Bible (e.g., "John 3:16" or "grace faith")'
 		);
 
@@ -64,10 +65,15 @@ export class BibleSearchModal extends Modal {
 		// Focus input
 		this.searchInput.focus();
 
-		// Set initial query if provided
-		if (this.initialQuery) {
-			this.searchInput.value = this.initialQuery;
-			this.handleSearch(this.initialQuery);
+		// Pre-fill with an explicit initial query (e.g. "search selected text"),
+		// falling back to the last query from this session - handy for inserting
+		// another verse from the same search, or the parallel verse in the
+		// other language
+		const prefillQuery = this.initialQuery || this.plugin.getLastSearchQuery();
+		if (prefillQuery) {
+			this.searchInput.value = prefillQuery;
+			this.searchInput.select();
+			this.handleSearch(prefillQuery);
 		}
 	}
 
@@ -188,6 +194,26 @@ export class BibleSearchModal extends Modal {
 	}
 
 	/**
+	 * Clear the search query, results, and any pending/in-flight search
+	 */
+	private handleClear() {
+		if (this.searchDebounceTimer !== null) {
+			clearTimeout(this.searchDebounceTimer);
+			this.searchDebounceTimer = null;
+		}
+		if (this.currentSearchAbortController) {
+			this.currentSearchAbortController.abort();
+			this.currentSearchAbortController = null;
+		}
+
+		this.searchQuery = '';
+		this.currentResults = [];
+		this.parallelResults = undefined;
+		this.selectedIndex = -1;
+		this.resultsContainer.empty();
+	}
+
+	/**
 	 * Handle keyboard navigation
 	 */
 	private handleKeyDown(event: KeyboardEvent) {
@@ -286,6 +312,10 @@ export class BibleSearchModal extends Modal {
 	}
 
 	onClose() {
+		// Remember whatever is in the search box so the next time the modal
+		// opens it's pre-filled (empty if the user cleared it before closing)
+		this.plugin.setLastSearchQuery(this.searchInput.value);
+
 		const { contentEl } = this;
 		contentEl.empty();
 	}

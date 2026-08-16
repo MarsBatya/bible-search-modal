@@ -7,6 +7,11 @@ export default class BibleSearchPlugin extends Plugin {
 	settings!: BibleSearchSettings;
 	private dbEngine!: DatabaseEngine;
 
+	// Remembers the last search query for the session, so reopening the
+	// search modal can pre-fill it (e.g. to insert another verse from the
+	// same search, or the parallel verse in the other language)
+	private lastSearchQuery: string = '';
+
 	async onload() {
 		console.log('Loading Bible Search plugin...');
 
@@ -114,5 +119,19 @@ export default class BibleSearchPlugin extends Plugin {
 	 */
 	getDbEngine(): DatabaseEngine {
 		return this.dbEngine;
+	}
+
+	/**
+	 * Get the last search query, used to pre-fill the search modal on reopen
+	 */
+	getLastSearchQuery(): string {
+		return this.lastSearchQuery;
+	}
+
+	/**
+	 * Remember the last search query for the session
+	 */
+	setLastSearchQuery(query: string): void {
+		this.lastSearchQuery = query;
 	}
 }

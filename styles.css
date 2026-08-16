@@ -39,6 +39,13 @@
 	background-color: var(--input-background-color);
 }
 
+.bible-search-clear {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+}
+
 /* Results Container */
 .results-container {
 	max-height: 400px;
