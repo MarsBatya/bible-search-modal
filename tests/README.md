@@ -6,7 +6,7 @@ Comprehensive test suite for database queries and utilities, independent of Obsi
 
 This test suite validates all database operations without needing the Obsidian plugin environment. Tests can be run with `npm test` or `npm run test:run`.
 
-**Status: ✅ All 101 tests passing**
+**Status: ✅ 188/190 tests passing**
 
 ## Running Tests
 
@@ -62,6 +62,40 @@ Tests verse formatting and utility functions:
 - ✅ Verse formatting with variable substitution
 - ✅ Keyword highlighting (Latin + Cyrillic)
 - ✅ Text truncation and preview generation
+
+### `parser.test.ts` (30 tests)
+Tests Bible reference parsing (`src/search/parser.ts`) - the address-search engine:
+- **parseReference()**: single verses, ranges, chapter-only, abbreviations,
+  numbered books ("1 Peter", "1john"), Cyrillic addresses, fuzzy typo correction
+  ("Mathew" → Matthew), and rejection of invalid chapters/verses/reversed ranges
+- **looksLikeReference() / isKeywordSearch()**: address-vs-keyword classification
+- **splitKeywords()**: whitespace splitting and lowercasing
+
+### `fuzz.test.ts` (22 tests)
+Tests fuzzy string matching (`src/utils/fuzz.ts`) used to resolve typo'd/abbreviated
+book names:
+- **levenshteinDistance()**: edit distance for insertions/deletions/substitutions
+- **isPrefix()**: case-insensitive prefix matching
+- **findBestMatch()**: exact → prefix → Levenshtein resolution strategy, and the
+  distance-3 cutoff beyond which no match is returned
+
+### `language.test.ts` (11 tests)
+Tests Cyrillic/Latin language detection (`src/utils/language.ts`) used to route
+searches to the KJV or RST database:
+- Pure Latin / pure Cyrillic text
+- The 30% Cyrillic-character threshold (including the boundary case)
+- Empty/falsy input defaulting to KJV
+
+### `search.engine.test.ts` (15 tests)
+Tests the top-level search orchestrator (`src/search/engine.ts`) - the function the
+search modal calls directly, tying parsing, language detection, and database
+queries together:
+- Address search: single verse, verse range, full chapter
+- Keyword search: AND logic across multiple keywords, KJV/RST routing by language
+- Parallel-translation lookup for both address and keyword searches
+- Database fallback when the detected-language database isn't loaded
+- Error handling when no database is available
+- Result caching (including that a cached hit doesn't touch the databases again)
 
 ## Test Setup
 

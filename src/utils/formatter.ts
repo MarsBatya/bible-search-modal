@@ -106,17 +106,21 @@ export function highlightKeywords(text: string | null | undefined, keywords: str
 
 	let result = text;
 	const highlightMap: Record<string, string> = {};
+	let placeholderIndex = 0;
 
 	// Process each keyword, using placeholders to protect already-highlighted text
-	sortedKeywords.forEach((keyword, i) => {
-		const placeholder = `__HIGHLIGHT_${i}__`;
-		highlightMap[placeholder] = `**${keyword}**`;
-
+	sortedKeywords.forEach((keyword) => {
 		try {
-			// First pass: replace all occurrences with placeholder
+			// First pass: replace each occurrence with its own placeholder, capturing
+			// the actual matched substring so its original casing is preserved
+			// (e.g. "Love" stays "Love" instead of becoming the lowercased "love")
 			const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 			const regex = new RegExp(escapedKeyword, 'gi');
-			result = result.replace(regex, placeholder);
+			result = result.replace(regex, (match) => {
+				const placeholder = `__HIGHLIGHT_${placeholderIndex++}__`;
+				highlightMap[placeholder] = `**${match}**`;
+				return placeholder;
+			});
 		} catch (error) {
 			console.warn(`Failed to highlight keyword "${keyword}":`, error);
 		}
