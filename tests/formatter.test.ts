@@ -230,6 +230,26 @@ describe('Formatter Utilities', () => {
 			const result = highlightKeywords(text, ['$', '.*']);
 			expect(result).toBeDefined();
 		});
+
+		it('should not corrupt placeholders when a keyword is a substring of the word "highlight"', () => {
+			// Regression test: placeholders used to be literal text like
+			// "__HIGHLIGHT_0__". A later keyword such as "light" or "high"
+			// would match *inside* that literal placeholder (case-insensitive
+			// regex), corrupting it before it could be resolved - leaving
+			// raw "__HIGHLIGHT_N__" markers in the output instead of bolded
+			// text. This only ever showed up for Latin-alphabet (English)
+			// queries, never Cyrillic ones, since a Cyrillic keyword can
+			// never match a Latin-letter placeholder.
+			const result = highlightKeywords('I shall not want light and a high hand', [
+				'shall', 'not', 'want', 'light', 'high',
+			]);
+			expect(result).not.toContain('HIGHLIGHT');
+			expect(result).toContain('**shall**');
+			expect(result).toContain('**not**');
+			expect(result).toContain('**want**');
+			expect(result).toContain('**light**');
+			expect(result).toContain('**high**');
+		});
 	});
 
 	describe('getDefaultVerseFormat()', () => {

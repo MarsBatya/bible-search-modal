@@ -108,7 +108,21 @@ export function highlightKeywords(text: string | null | undefined, keywords: str
 	const highlightMap: Record<string, string> = {};
 	let placeholderIndex = 0;
 
-	// Process each keyword, using placeholders to protect already-highlighted text
+	// Process each keyword, using placeholders to protect already-highlighted text.
+	//
+	// Placeholders are bookended with Unicode Private Use Area characters
+	// (U+E000 / U+E001) rather than spelled out as a word like "HIGHLIGHT".
+	// A real-word placeholder is exactly the kind of thing a later keyword
+	// can match a substring of - e.g. searching for "light" or "high" would
+	// match inside a literal "__HIGHLIGHT_0__" placeholder itself, silently
+	// corrupting it before the second pass gets a chance to resolve it back
+	// to "**light**"/"**high**" (this was a real, reproduced bug: it only
+	// showed up for English/Latin queries because Cyrillic keywords can
+	// never match Latin letters in a placeholder). PUA characters can't
+	// appear in real Bible text or be typed as a search keyword, so no
+	// keyword can ever collide with the marker.
+	const PLACEHOLDER_START = '';
+	const PLACEHOLDER_END = '';
 	sortedKeywords.forEach((keyword) => {
 		try {
 			// First pass: replace each occurrence with its own placeholder, capturing
@@ -117,7 +131,7 @@ export function highlightKeywords(text: string | null | undefined, keywords: str
 			const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 			const regex = new RegExp(escapedKeyword, 'gi');
 			result = result.replace(regex, (match) => {
-				const placeholder = `__HIGHLIGHT_${placeholderIndex++}__`;
+				const placeholder = `${PLACEHOLDER_START}${placeholderIndex++}${PLACEHOLDER_END}`;
 				highlightMap[placeholder] = `**${match}**`;
 				return placeholder;
 			});
@@ -126,10 +140,11 @@ export function highlightKeywords(text: string | null | undefined, keywords: str
 		}
 	});
 
-	// Second pass: replace all placeholders with highlighted versions
-	// This prevents inner keywords from breaking outer keyword highlighting
+	// Second pass: replace all placeholders with highlighted versions. Uses
+	// split/join (plain substring matching, not a RegExp) so the placeholder
+	// itself never needs escaping.
 	Object.entries(highlightMap).forEach(([placeholder, highlighted]) => {
-		result = result.replace(new RegExp(placeholder, 'g'), highlighted);
+		result = result.split(placeholder).join(highlighted);
 	});
 
 	return result;
