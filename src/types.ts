@@ -1,3 +1,5 @@
+import initSqlJs from 'sql.js';
+
 /**
  * Core types for Bible Search plugin
  */
@@ -52,7 +54,7 @@ export interface BookMapping {
  * Database instance wrapper
  */
 export interface DatabaseInstance {
-	db: any; // sql.js Database
+	db: initSqlJs.Database;
 	translation: 'KJV' | 'RST';
 	isLoaded: boolean;
 }

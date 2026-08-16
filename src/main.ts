@@ -105,12 +105,8 @@ export default class BibleSearchPlugin extends Plugin {
 	 * Download database from URL
 	 */
 	async downloadDatabase(translation: 'KJV' | 'RST', url: string): Promise<void> {
-		try {
-			await this.dbEngine.initSqlJs();
-			await this.dbEngine.fetchDb(translation, url);
-		} catch (error) {
-			throw error;
-		}
+		await this.dbEngine.initSqlJs();
+		await this.dbEngine.fetchDb(translation, url);
 	}
 
 	/**

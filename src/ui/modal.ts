@@ -1,7 +1,7 @@
 import { App, Modal, Editor, MarkdownView, Notice } from 'obsidian';
 import BibleSearchPlugin from '../main';
 import { Verse, SearchResult } from '../types';
-import { search, addToSearchHistory } from '../search/engine';
+import { search } from '../search/engine';
 import { formatVerse, stripMarkup } from '../utils/formatter';
 import { splitKeywords } from '../search/parser';
 import {
@@ -20,7 +20,7 @@ export class BibleSearchModal extends Modal {
 	private searchInput!: HTMLInputElement;
 	private resultsContainer!: HTMLElement;
 	private currentResults: Verse[] = [];
-	private parallelResults: Verse[] | undefined = [];
+	private parallelResults: Verse[] | undefined;
 	private selectedIndex: number = -1;
 	private searchQuery: string = '';
 	private initialQuery: string = '';
@@ -178,9 +178,6 @@ export class BibleSearchModal extends Modal {
 				onSelect: (verse) => this.insertVerse(verse),
 				parallelResults: this.parallelResults,
 			});
-
-			// Add to search history
-			addToSearchHistory(query);
 		} catch (error) {
 			// Ignore errors if search was aborted
 			if (!abortSignal.aborted) {

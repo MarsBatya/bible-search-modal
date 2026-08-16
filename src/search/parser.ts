@@ -1,6 +1,12 @@
-import { ParsedReference, BookMapping } from '../types';
-import { BIBLE_BOOKS, REFERENCE_PATTERN, CHAPTER_VERSE_PATTERN } from '../utils/constants';
+import { ParsedReference } from '../types';
+import { BIBLE_BOOKS, REFERENCE_PATTERN } from '../utils/constants';
 import { findBestMatch } from '../utils/fuzz';
+
+// Precomputed once since BIBLE_BOOKS is static
+const ALL_BOOK_NAMES = [
+	...BIBLE_BOOKS.map((b) => b.long_name),
+	...BIBLE_BOOKS.map((b) => b.short_name),
+];
 
 /**
  * Bible reference parser
@@ -87,10 +93,6 @@ export function parseReference(input: string): ParsedReference | null {
  * Find book number by book name (with fuzzy matching)
  */
 function findBookNumber(bookName: string): number | null {
-	const names = BIBLE_BOOKS.map((b) => b.long_name);
-	const shortNames = BIBLE_BOOKS.map((b) => b.short_name);
-	const allNames = [...names, ...shortNames];
-
 	// Try to find abbreviations in database
 	for (const book of BIBLE_BOOKS) {
 		for (const abbr of book.abbreviations) {
@@ -101,7 +103,7 @@ function findBookNumber(bookName: string): number | null {
 	}
 
 	// Use fuzzy matching on all names
-	const match = findBestMatch(bookName, allNames);
+	const match = findBestMatch(bookName, ALL_BOOK_NAMES);
 	if (!match) {
 		return null;
 	}

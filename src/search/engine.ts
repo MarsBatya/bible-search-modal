@@ -1,6 +1,7 @@
-import { SearchResult, DatabaseInstance } from '../types';
+import { SearchResult, DatabaseInstance, Verse } from '../types';
 import { detectLanguage } from '../utils/language';
-import { parseReference, isKeywordSearch, splitKeywords } from './parser';
+import { parseReference, splitKeywords } from './parser';
+import { debug } from '../utils/logger';
 import {
 	getVerse,
 	getChapter,
@@ -107,6 +108,17 @@ export async function search(
 }
 
 /**
+ * Resolve the "other" translation's database, used for parallel-verse lookups
+ */
+function resolveOtherDb(
+	selectedDb: DatabaseInstance,
+	rstDb: DatabaseInstance | undefined,
+	kjvDb: DatabaseInstance | undefined
+): DatabaseInstance | undefined {
+	return selectedDb.translation === 'KJV' ? rstDb : kjvDb;
+}
+
+/**
  * Search by Bible address (e.g., "John 3:16")
  */
 function addressSearch(
@@ -121,9 +133,9 @@ function addressSearch(
 		throw new Error('Invalid Bible reference');
 	}
 
-	console.log(`[Address Search] Query: "${query}", Book#: ${parsed.book_number}, Ch: ${parsed.chapter}, Verses: ${parsed.verseStart}-${parsed.verseEnd}`);
+	debug(`[Address Search] Query: "${query}", Book#: ${parsed.book_number}, Ch: ${parsed.chapter}, Verses: ${parsed.verseStart}-${parsed.verseEnd}`);
 
-	const results: any[] = [];
+	const results: Verse[] = [];
 
 	if (parsed.verseStart !== undefined && parsed.verseEnd !== undefined) {
 		// Get verse range
@@ -153,12 +165,12 @@ function addressSearch(
 	}
 
 	// Get parallel verses if enabled
-	let parallelResults: any[] | undefined;
-	console.log(`[Parallel] showParallel=${showParallel}, results.length=${results.length}, selectedDb=${selectedDb.translation}`);
+	let parallelResults: Verse[] | undefined;
+	debug(`[Parallel] showParallel=${showParallel}, results.length=${results.length}, selectedDb=${selectedDb.translation}`);
 	if (showParallel && results.length > 0) {
 		// Try to get parallel from the other loaded database
-		const otherDb = selectedDb.translation === 'KJV' ? rstDb : kjvDb;
-		console.log(`[Parallel] Looking for parallel in: ${selectedDb.translation === 'KJV' ? 'RST' : 'KJV'}, loaded=${otherDb?.isLoaded}`);
+		const otherDb = resolveOtherDb(selectedDb, rstDb, kjvDb);
+		debug(`[Parallel] Looking for parallel in: ${selectedDb.translation === 'KJV' ? 'RST' : 'KJV'}, loaded=${otherDb?.isLoaded}`);
 		if (otherDb?.isLoaded) {
 			if (parsed.verseStart !== undefined && parsed.verseEnd !== undefined) {
 				parallelResults = getVerseRange(
@@ -184,7 +196,7 @@ function addressSearch(
 		}
 	}
 
-	console.log(`[Address Search] Returning ${results.length} results, ${parallelResults?.length || 0} parallel`);
+	debug(`[Address Search] Returning ${results.length} results, ${parallelResults?.length || 0} parallel`);
 	return {
 		results,
 		sourceDb: selectedDb.translation,
@@ -208,9 +220,9 @@ function keywordSearch(
 	const results = searchVersesKeyword(selectedDb, keywords);
 
 	// Get parallel results if enabled
-	let parallelResults: any[] | undefined;
+	let parallelResults: Verse[] | undefined;
 	if (showParallel && results.length > 0) {
-		const otherDb = selectedDb.translation === 'KJV' ? rstDb : kjvDb;
+		const otherDb = resolveOtherDb(selectedDb, rstDb, kjvDb);
 		if (otherDb && otherDb.isLoaded) {
 			// For keyword search parallel, fetch the same verses by their references
 			// (not by keyword, since the keywords are in the source language)
@@ -236,35 +248,4 @@ function keywordSearch(
 		query,
 		isAddressSearch: false,
 	};
-}
-
-/**
- * Clear search cache
- */
-export function clearSearchCache(): void {
-	searchCache.clear();
-}
-
-/**
- * Get search history (stored separately)
- */
-let searchHistory: string[] = [];
-
-export function addToSearchHistory(query: string): void {
-	// Remove if already exists
-	searchHistory = searchHistory.filter((q) => q !== query);
-	// Add to front
-	searchHistory.unshift(query);
-	// Keep only last 50
-	if (searchHistory.length > 50) {
-		searchHistory = searchHistory.slice(0, 50);
-	}
-}
-
-export function getSearchHistory(): string[] {
-	return [...searchHistory];
-}
-
-export function clearSearchHistory(): void {
-	searchHistory = [];
 }

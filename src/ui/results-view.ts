@@ -14,6 +14,19 @@ export interface ResultsViewOptions {
 }
 
 /**
+ * Render verse text into an element, expanding **bold** markers (added by
+ * highlightKeywords) into <strong> tags, or plain text otherwise
+ */
+function renderVerseText(container: HTMLElement, text: string): void {
+	if (text && text.includes('**')) {
+		// Contains markdown-style bold from highlightKeywords
+		container.innerHTML = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+	} else {
+		container.textContent = text || '(No text available)';
+	}
+}
+
+/**
  * Render a single verse result with optional parallel translation
  */
 export function renderVerseResult(
@@ -51,13 +64,7 @@ export function renderVerseResult(
 	}
 
 	const textEl = mainVerseEl.createDiv({ cls: 'verse-text' });
-	// Use textContent for safety, or innerHTML if text contains markup
-	if (text && text.includes('**')) {
-		// Contains markdown-style bold from highlightKeywords
-		textEl.innerHTML = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-	} else {
-		textEl.textContent = text || '(No text available)';
-	}
+	renderVerseText(textEl, text);
 
 	// Add click handler to main verse
 	mainVerseEl.addEventListener('click', (e) => {
@@ -85,11 +92,7 @@ export function renderVerseResult(
 		let parallelText = options.stripMarkup ? stripMarkup(parallelVerse.text) : (parallelVerse.text || '');
 
 		const parallelTextEl = parallelEl.createDiv({ cls: 'verse-text' });
-		if (parallelText && parallelText.includes('**')) {
-			parallelTextEl.innerHTML = parallelText.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-		} else {
-			parallelTextEl.textContent = parallelText || '(No text available)';
-		}
+		renderVerseText(parallelTextEl, parallelText);
 
 		// Add click handler to parallel verse
 		parallelEl.addEventListener('click', (e) => {

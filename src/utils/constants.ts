@@ -108,18 +108,3 @@ export const CYRILLIC_PATTERN = /[а-яёА-ЯЁ]/g;
  * - (?:[: ](\d+(?:-\d+)?)?)? - Optional: colon/space and verse number (supports ranges)
  */
 export const REFERENCE_PATTERN = /^((?:\d+\s*)?[а-яёА-ЯЁa-zA-Z][а-яёА-ЯЁa-zA-Z0-9\s]*?)\s+(\d+)(?:[: ](\d+(?:-\d+)?)?)?$/;
-
-/**
- * Chapter:Verse pattern
- */
-export const CHAPTER_VERSE_PATTERN = /^(\d+)(?::(\d+(?:-\d+)?))?$/;
-
-/**
- * Max results per search
- */
-export const MAX_SEARCH_RESULTS = 100;
-
-/**
- * Results per page (for pagination)
- */
-export const RESULTS_PER_PAGE = 5;

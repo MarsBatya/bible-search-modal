@@ -83,25 +83,3 @@ export function findBestMatch(input: string, candidates: string[]): string | nul
 	// Only return if distance is reasonably close (threshold: 3)
 	return minDistance <= 3 ? bestMatch : null;
 }
-
-/**
- * Sort candidates by similarity to input
- */
-export function sortByRelevance(input: string, candidates: string[]): string[] {
-	const inputLower = input.toLowerCase().trim();
-
-	return candidates.sort((a, b) => {
-		// Prefer prefix matches
-		const aIsPrefix = isPrefix(inputLower, a);
-		const bIsPrefix = isPrefix(inputLower, b);
-
-		if (aIsPrefix && !bIsPrefix) return -1;
-		if (!aIsPrefix && bIsPrefix) return 1;
-
-		// Then sort by Levenshtein distance
-		const aDistance = levenshteinDistance(inputLower, a.toLowerCase());
-		const bDistance = levenshteinDistance(inputLower, b.toLowerCase());
-
-		return aDistance - bDistance;
-	});
-}

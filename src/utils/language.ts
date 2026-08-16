@@ -21,24 +21,3 @@ export function detectLanguage(text: string): 'KJV' | 'RST' {
 
 	return cyrillicPercentage > 0.3 ? 'RST' : 'KJV';
 }
-
-/**
- * Check if text contains Cyrillic characters
- */
-export function hasCyrillic(text: string): boolean {
-	return CYRILLIC_PATTERN.test(text);
-}
-
-/**
- * Check if text contains Latin characters
- */
-export function hasLatin(text: string): boolean {
-	return /[a-z]/i.test(text);
-}
-
-/**
- * Get language name
- */
-export function getLanguageName(lang: 'KJV' | 'RST'): string {
-	return lang === 'KJV' ? 'English (KJV)' : 'Russian (RST)';
-}
