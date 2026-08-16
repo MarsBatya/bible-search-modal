@@ -122,6 +122,31 @@ love               → All verses containing "love"
 
 **Command Palette** → "Insert random verse" drops a random verse straight into the note at your cursor, using your configured format template. Picks between KJV and RST when both are loaded. Requires an active note - shows a notice if none is open.
 
+### Using from other plugins (e.g. Templater)
+
+The plugin exposes `retrieveRandomVerse()` for other plugins to call directly, without opening the search modal:
+
+```js
+const bibleSearch = app.plugins.plugins['bible-search-modal'];
+const verse = await bibleSearch.retrieveRandomVerse('KJV'); // or 'RST'
+```
+
+In a [Templater](https://silentvoid13.github.io/Templater/) template:
+
+```js
+<%*
+const bibleSearch = app.plugins.plugins['bible-search-modal'];
+const verse = await bibleSearch.retrieveRandomVerse('KJV');
+tR += verse ?? '(Bible Search plugin not available)';
+%>
+```
+
+`retrieveRandomVerse(translation, verseFormat?, stripMarkup?)`:
+- `translation`: `'KJV'` or `'RST'`
+- `verseFormat` (optional): a template string, same syntax as the Verse Format Template setting - defaults to your configured template if omitted
+- `stripMarkup` (optional): whether to strip Strong's numbers/markup - defaults to your Strip Markup setting if omitted
+- Returns the formatted verse as a string, or `null` if that translation's database isn't loaded
+
 ### Keyboard Navigation Examples
 
 The search modal works great with keyboard:

@@ -154,6 +154,34 @@ export default class BibleSearchPlugin extends Plugin {
 	}
 
 	/**
+	 * Public API for other plugins (e.g. Templater user scripts) to pull a
+	 * random verse as a formatted string, without opening the search modal.
+	 * Waits for the database to finish loading if it's still in progress
+	 * (e.g. called shortly after Obsidian starts) rather than failing just
+	 * because it isn't loaded *yet*.
+	 *
+	 * @param translation 'KJV' or 'RST'
+	 * @param verseFormat Format template to use; defaults to the plugin's configured template
+	 * @param stripMarkup Whether to strip Strong's numbers/markup; defaults to the plugin's setting
+	 * @returns The formatted verse, or null if that database isn't available
+	 */
+	async retrieveRandomVerse(
+		translation: 'KJV' | 'RST',
+		verseFormat?: string,
+		stripMarkup?: boolean
+	): Promise<string | null> {
+		const db = await this.dbEngine.ensureDb(translation, 5000).catch(() => null);
+		if (!db) {
+			return null;
+		}
+		const verse = getRandomVerse(db);
+		if (!verse) {
+			return null;
+		}
+		return formatVerse(verse, verseFormat ?? this.settings.verseFormat, stripMarkup ?? this.settings.stripMarkup);
+	}
+
+	/**
 	 * Download database from URL
 	 */
 	async downloadDatabase(translation: 'KJV' | 'RST', url: string): Promise<void> {
