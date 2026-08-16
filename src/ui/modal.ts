@@ -6,6 +6,8 @@ import { formatVerse, stripMarkup } from '../utils/formatter';
 import { splitKeywords } from '../search/parser';
 import {
 	createSearchInput,
+	createMultiSelectToggle,
+	renderMultiSelectBar,
 	renderResultsList,
 	updateSelection,
 	showLoading,
@@ -18,12 +20,22 @@ import {
 export class BibleSearchModal extends Modal {
 	private plugin: BibleSearchPlugin;
 	private searchInput!: HTMLInputElement;
+	private multiSelectToggleButton!: HTMLButtonElement;
+	private multiSelectBar!: HTMLElement;
 	private resultsContainer!: HTMLElement;
 	private currentResults: Verse[] = [];
 	private parallelResults: Verse[] | undefined;
+	private currentKeywords: string[] = [];
 	private selectedIndex: number = -1;
 	private searchQuery: string = '';
 	private initialQuery: string = '';
+
+	// Multi-select mode: pick several verses, then insert them all at once,
+	// each on its own line. Picks are keyed by "translation|book|chapter|verse"
+	// since Verse objects aren't guaranteed to be the same reference across
+	// re-renders of the same result set.
+	private multiSelectMode: boolean = false;
+	private selectedVerseKeys: Set<string> = new Set();
 
 	// Debouncing and cancellation
 	private searchDebounceTimer: number | null = null;
@@ -58,6 +70,12 @@ export class BibleSearchModal extends Modal {
 			() => this.handleClear(),
 			'Search Bible (e.g., "John 3:16" or "grace faith")'
 		);
+		this.multiSelectToggleButton = createMultiSelectToggle(inputContainer, () =>
+			this.toggleMultiSelectMode()
+		);
+
+		// Multi-select bar (selection count + Insert/Cancel), hidden until enabled
+		this.multiSelectBar = contentEl.createDiv({ cls: 'bible-multiselect-bar is-hidden' });
 
 		// Create results container
 		this.resultsContainer = contentEl.createDiv({ cls: 'results-container' });
@@ -168,6 +186,9 @@ export class BibleSearchModal extends Modal {
 
 			this.currentResults = result.results;
 			this.parallelResults = result.parallelResults;
+			// A new search's results are a fresh set - past picks don't carry over
+			this.selectedVerseKeys.clear();
+			this.updateMultiSelectBar();
 
 			if (this.currentResults.length === 0) {
 				showError(this.resultsContainer, 'No verses found');
@@ -175,15 +196,9 @@ export class BibleSearchModal extends Modal {
 			}
 
 			// Get keywords for highlighting
-			const keywords = result.isAddressSearch ? [] : splitKeywords(query);
+			this.currentKeywords = result.isAddressSearch ? [] : splitKeywords(query);
 
-			renderResultsList(this.resultsContainer, this.currentResults, {
-				stripMarkup: this.plugin.settings.stripMarkup,
-				highlightMatches: this.plugin.settings.highlightMatches,
-				keywords,
-				onSelect: (verse) => this.insertVerse(verse),
-				parallelResults: this.parallelResults,
-			});
+			this.renderResults();
 		} catch (error) {
 			// Ignore errors if search was aborted
 			if (!abortSignal.aborted) {
@@ -210,7 +225,9 @@ export class BibleSearchModal extends Modal {
 		this.currentResults = [];
 		this.parallelResults = undefined;
 		this.selectedIndex = -1;
+		this.selectedVerseKeys.clear();
 		this.resultsContainer.empty();
+		this.updateMultiSelectBar();
 	}
 
 	/**
@@ -237,7 +254,11 @@ export class BibleSearchModal extends Modal {
 				if (this.selectedIndex >= 0 && this.selectedIndex < this.currentResults.length) {
 					const verse = this.currentResults[this.selectedIndex];
 					if (verse) {
-						this.insertVerse(verse);
+						if (this.multiSelectMode) {
+							this.handleToggleSelect(verse);
+						} else {
+							this.insertVerse(verse);
+						}
 					}
 				}
 				break;
@@ -308,6 +329,146 @@ export class BibleSearchModal extends Modal {
 		} catch (error) {
 			console.error('Failed to insert verse:', error);
 			new Notice('Failed to insert verse');
+		}
+	}
+
+	/**
+	 * Render the current results, reflecting multi-select state
+	 */
+	private renderResults() {
+		if (this.currentResults.length === 0) {
+			return;
+		}
+
+		renderResultsList(
+			this.resultsContainer,
+			this.currentResults,
+			{
+				stripMarkup: this.plugin.settings.stripMarkup,
+				highlightMatches: this.plugin.settings.highlightMatches,
+				keywords: this.currentKeywords,
+				onSelect: (verse) => this.insertVerse(verse),
+				parallelResults: this.parallelResults,
+				multiSelectMode: this.multiSelectMode,
+				isSelected: (verse) => this.selectedVerseKeys.has(this.verseKey(verse)),
+				onToggleSelect: (verse) => this.handleToggleSelect(verse),
+			},
+			this.selectedIndex
+		);
+	}
+
+	/**
+	 * Turn multi-select mode on/off. Turning it off discards any picks -
+	 * picks don't persist once you're back to single-tap-to-insert.
+	 */
+	private toggleMultiSelectMode() {
+		this.multiSelectMode = !this.multiSelectMode;
+		if (!this.multiSelectMode) {
+			this.selectedVerseKeys.clear();
+		}
+		this.multiSelectToggleButton.classList.toggle('is-active', this.multiSelectMode);
+		this.renderResults();
+		this.updateMultiSelectBar();
+	}
+
+	/**
+	 * Show/hide and refresh the selection-count / Insert / Cancel bar
+	 */
+	private updateMultiSelectBar() {
+		if (!this.multiSelectMode) {
+			this.multiSelectBar.addClass('is-hidden');
+			this.multiSelectBar.empty();
+			return;
+		}
+
+		this.multiSelectBar.removeClass('is-hidden');
+		renderMultiSelectBar(
+			this.multiSelectBar,
+			this.selectedVerseKeys.size,
+			() => this.insertSelectedVerses(),
+			() => this.toggleMultiSelectMode()
+		);
+	}
+
+	/**
+	 * Toggle a verse's selected state in multi-select mode
+	 */
+	private handleToggleSelect(verse: Verse) {
+		const key = this.verseKey(verse);
+		if (this.selectedVerseKeys.has(key)) {
+			this.selectedVerseKeys.delete(key);
+		} else {
+			this.selectedVerseKeys.add(key);
+		}
+		this.renderResults();
+		this.updateMultiSelectBar();
+	}
+
+	/**
+	 * Stable identity for a verse, since Verse objects aren't guaranteed to
+	 * be the same reference across re-renders of the same result set
+	 */
+	private verseKey(verse: Verse): string {
+		return `${verse.translation}|${verse.book_number}|${verse.chapter}|${verse.verse}`;
+	}
+
+	/**
+	 * Selected verses in the order they appear in the results list -
+	 * interleaving each main verse with its parallel translation when both
+	 * are selected, matching the on-screen reading order
+	 */
+	private getOrderedSelectedVerses(): Verse[] {
+		const ordered: Verse[] = [];
+
+		for (const verse of this.currentResults) {
+			if (this.selectedVerseKeys.has(this.verseKey(verse))) {
+				ordered.push(verse);
+			}
+
+			const parallel = this.parallelResults?.find(
+				(pv) =>
+					pv.book_number === verse.book_number &&
+					pv.chapter === verse.chapter &&
+					pv.verse === verse.verse
+			);
+			if (parallel && this.selectedVerseKeys.has(this.verseKey(parallel))) {
+				ordered.push(parallel);
+			}
+		}
+
+		return ordered;
+	}
+
+	/**
+	 * Insert all selected verses into the active editor, each on its own line
+	 */
+	private insertSelectedVerses() {
+		const verses = this.getOrderedSelectedVerses();
+		if (verses.length === 0) {
+			return;
+		}
+
+		try {
+			const editor = this.app.workspace.activeEditor?.editor;
+			if (!editor) {
+				new Notice('No active editor');
+				return;
+			}
+
+			const formatted = verses
+				.map((verse) =>
+					formatVerse(verse, this.plugin.settings.verseFormat, this.plugin.settings.stripMarkup)
+				)
+				.join('\n');
+
+			editor.replaceSelection(formatted);
+
+			this.close();
+
+			new Notice(`Inserted ${verses.length} verse${verses.length === 1 ? '' : 's'}`);
+		} catch (error) {
+			console.error('Failed to insert verses:', error);
+			new Notice('Failed to insert verses');
 		}
 	}
 

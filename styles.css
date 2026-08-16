@@ -50,6 +50,44 @@
 	flex-shrink: 0;
 }
 
+.bible-multiselect-toggle {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+}
+
+.bible-multiselect-toggle.is-active {
+	color: var(--text-accent);
+	background-color: var(--background-modifier-active-hover);
+}
+
+/* Multi-select bar: selection count + Insert/Cancel, shown while picking
+   several verses to paste together */
+.bible-multiselect-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--divider-color);
+	background-color: var(--background-secondary);
+}
+
+.bible-multiselect-bar.is-hidden {
+	display: none;
+}
+
+.multiselect-count {
+	font-size: 13px;
+	color: var(--text-muted);
+}
+
+.multiselect-actions {
+	display: flex;
+	gap: 8px;
+}
+
 /* Results Container */
 .results-container {
 	max-height: 400px;
@@ -115,6 +153,24 @@
 
 .main-verse:hover {
 	background-color: rgba(100, 150, 200, 0.1);
+}
+
+/* Multi-select: checked verse blocks and their checkbox indicator */
+.verse-block.checked {
+	background-color: rgba(100, 150, 200, 0.12);
+	outline: 1px solid var(--text-accent);
+}
+
+.verse-checkbox {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-muted);
+	flex-shrink: 0;
+}
+
+.verse-checkbox.checked {
+	color: var(--text-accent);
 }
 
 .parallel-verse {
