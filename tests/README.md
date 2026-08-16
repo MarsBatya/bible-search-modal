@@ -6,7 +6,7 @@ Comprehensive test suite for database queries and utilities, independent of Obsi
 
 This test suite validates all database operations without needing the Obsidian plugin environment. Tests can be run with `npm test` or `npm run test:run`.
 
-**Status: ✅ 217/217 tests passing**
+**Status: ✅ 225/225 tests passing**
 
 ## Running Tests
 
@@ -97,6 +97,13 @@ queries together:
 - Database fallback when the detected-language database isn't loaded
 - Error handling when no database is available
 - Result caching (including that a cached hit doesn't touch the databases again)
+
+### `recent-verses.test.ts` (8 tests)
+Tests `verseKey()` (`src/utils/verse-key.ts`) - the stable per-verse identity
+used for multi-select picks and recently-inserted tracking - and
+`RecentVerseTracker` (`src/utils/recent-verses.ts`) - the bounded, in-memory
+LRU-style set behind the "already pasted this session" badge in results:
+marking, lookups, and eviction of the oldest key once over capacity.
 
 ### `versification.test.ts` (23 tests)
 Tests the Psalms/Job/Song of Solomon chapter-and-verse mapping (`src/utils/versification.ts`)

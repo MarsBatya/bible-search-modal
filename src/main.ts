@@ -3,6 +3,8 @@ import { DEFAULT_SETTINGS, BibleSearchSettings, BibleSearchSettingTab } from './
 import { DatabaseEngine, getEngineInstance } from './database/engine';
 import { getRandomVerse } from './database/queries';
 import { formatVerse } from './utils/formatter';
+import { verseKey } from './utils/verse-key';
+import { RecentVerseTracker } from './utils/recent-verses';
 import { DatabaseInstance } from './types';
 import { BibleSearchModal } from './ui/modal';
 
@@ -14,6 +16,11 @@ export default class BibleSearchPlugin extends Plugin {
 	// search modal can pre-fill it (e.g. to insert another verse from the
 	// same search, or the parallel verse in the other language)
 	private lastSearchQuery: string = '';
+
+	// Verses inserted into a note this session (keyed by verseKey()), so the
+	// search modal can mark "you already pasted this one" - deliberately
+	// in-memory only, not saved to disk, and reset on reload/restart.
+	private recentlyInserted = new RecentVerseTracker(200);
 
 	async onload() {
 		console.log('Loading Bible Search plugin...');
@@ -149,6 +156,7 @@ export default class BibleSearchPlugin extends Plugin {
 
 		const formatted = formatVerse(verse, this.settings.verseFormat, this.settings.stripMarkup);
 		editor.replaceSelection(formatted);
+		this.markRecentlyInserted(verseKey(verse));
 
 		new Notice(`Inserted: ${verse.book_name_short} ${verse.chapter}:${verse.verse}`);
 	}
@@ -180,5 +188,19 @@ export default class BibleSearchPlugin extends Plugin {
 	 */
 	setLastSearchQuery(query: string): void {
 		this.lastSearchQuery = query;
+	}
+
+	/**
+	 * Whether a verse was inserted into a note earlier this session
+	 */
+	isRecentlyInserted(key: string): boolean {
+		return this.recentlyInserted.has(key);
+	}
+
+	/**
+	 * Record that a verse was just inserted into a note
+	 */
+	markRecentlyInserted(key: string): void {
+		this.recentlyInserted.mark(key);
 	}
 }

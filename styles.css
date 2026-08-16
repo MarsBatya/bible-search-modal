@@ -135,6 +135,10 @@
 	color: inherit;
 }
 
+.bible-verse-result.selected .verse-pasted-badge {
+	color: inherit;
+}
+
 /* Verse blocks (main and parallel) */
 .verse-block {
 	margin-bottom: 12px;
@@ -171,6 +175,21 @@
 
 .verse-checkbox.checked {
 	color: var(--text-accent);
+}
+
+/* Verses inserted into a note earlier this session - a subtle tint so it's
+   scannable across a whole results list, not just when hovering to spot the
+   badge. Deliberately understated: it's a reminder, not a warning. */
+.verse-block.pasted {
+	background-color: rgba(100, 200, 130, 0.08);
+}
+
+.verse-pasted-badge {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-success, #4caf50);
+	flex-shrink: 0;
 }
 
 .parallel-verse {

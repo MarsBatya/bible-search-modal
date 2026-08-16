@@ -27,6 +27,9 @@ export interface ResultsViewOptions {
 	// Re-runs the search as a full-chapter lookup for this verse's book and
 	// chapter, then scrolls to and highlights it. Omitted -> no expand button.
 	onExpand?: (verse: Verse) => void;
+	// Whether this verse was inserted into a note earlier this session -
+	// shows a small "already pasted" badge. Omitted -> badge never shown.
+	isRecentlyPasted?: (verse: Verse) => boolean;
 }
 
 /**
@@ -48,6 +51,20 @@ function renderVerseText(container: HTMLElement, text: string): void {
 function renderCheckbox(refEl: HTMLElement, checked: boolean): void {
 	const checkbox = refEl.createDiv({ cls: `verse-checkbox${checked ? ' checked' : ''}` });
 	setIcon(checkbox, checked ? 'check' : 'circle');
+}
+
+/**
+ * Render the "already pasted this session" badge, if the verse was recently
+ * inserted into a note
+ */
+function renderPastedBadge(refEl: HTMLElement, verse: Verse, options: ResultsViewOptions): void {
+	if (!options.isRecentlyPasted?.(verse)) return;
+
+	const badge = refEl.createDiv({
+		cls: 'verse-pasted-badge',
+		attr: { 'aria-label': 'Already inserted this session' },
+	});
+	setIcon(badge, 'check');
 }
 
 /**
@@ -103,10 +120,11 @@ export function renderVerseResult(
 	});
 
 	const mainChecked = options.multiSelectMode ? (options.isSelected?.(verse) ?? false) : false;
+	const mainPasted = options.isRecentlyPasted?.(verse) ?? false;
 
 	// Main verse
 	const mainVerseEl = resultEl.createDiv({
-		cls: `verse-block main-verse${mainChecked ? ' checked' : ''}`,
+		cls: `verse-block main-verse${mainChecked ? ' checked' : ''}${mainPasted ? ' pasted' : ''}`,
 	});
 
 	// Verse reference
@@ -122,6 +140,7 @@ export function renderVerseResult(
 		cls: `translation-badge ${verse.translation.toLowerCase()}`,
 		text: verse.translation,
 	});
+	renderPastedBadge(refEl, verse, options);
 	renderVerseActions(refEl, verse, options);
 
 	// Verse text
@@ -151,9 +170,10 @@ export function renderVerseResult(
 		const parallelChecked = options.multiSelectMode
 			? (options.isSelected?.(parallelVerse) ?? false)
 			: false;
+		const parallelPasted = options.isRecentlyPasted?.(parallelVerse) ?? false;
 
 		const parallelEl = resultEl.createDiv({
-			cls: `verse-block parallel-verse${parallelChecked ? ' checked' : ''}`,
+			cls: `verse-block parallel-verse${parallelChecked ? ' checked' : ''}${parallelPasted ? ' pasted' : ''}`,
 		});
 
 		// Parallel verse reference
@@ -169,6 +189,7 @@ export function renderVerseResult(
 			cls: `translation-badge ${parallelVerse.translation.toLowerCase()}`,
 			text: parallelVerse.translation,
 		});
+		renderPastedBadge(parallelRefEl, parallelVerse, options);
 		renderVerseActions(parallelRefEl, parallelVerse, options);
 
 		// Parallel verse text

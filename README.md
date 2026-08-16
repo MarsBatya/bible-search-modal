@@ -29,6 +29,7 @@ A powerful Obsidian plugin for searching and inserting Bible verses with bilingu
 
 📖 **Context**
 - "Expand to chapter" on any result jumps to its full chapter, scrolled to and highlighting that verse
+- Verses you've already inserted this session are marked in the results list (in-memory only - resets on reload/restart), so you can see at a glance what you've already pasted when you reopen the modal
 
 ⚙️ **Offline & Configurable**
 - WASM-based SQLite databases (sql.js) - works on desktop & mobile

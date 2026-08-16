@@ -4,6 +4,7 @@ import { Verse, SearchResult } from '../types';
 import { search } from '../search/engine';
 import { formatVerse, stripMarkup } from '../utils/formatter';
 import { splitKeywords } from '../search/parser';
+import { verseKey } from '../utils/verse-key';
 import {
 	createSearchInput,
 	createMultiSelectToggle,
@@ -321,6 +322,7 @@ export class BibleSearchModal extends Modal {
 
 			// Insert at cursor
 			editor.replaceSelection(formattedVerse);
+			this.plugin.markRecentlyInserted(verseKey(verse));
 
 			// Close modal
 			this.close();
@@ -436,10 +438,11 @@ export class BibleSearchModal extends Modal {
 				onSelect: (verse) => this.insertVerse(verse),
 				parallelResults: this.parallelResults,
 				multiSelectMode: this.multiSelectMode,
-				isSelected: (verse) => this.selectedVerseKeys.has(this.verseKey(verse)),
+				isSelected: (verse) => this.selectedVerseKeys.has(verseKey(verse)),
 				onToggleSelect: (verse) => this.handleToggleSelect(verse),
 				onCopy: (verse) => this.copyVerse(verse),
 				onExpand: (verse) => this.expandToChapter(verse),
+				isRecentlyPasted: (verse) => this.plugin.isRecentlyInserted(verseKey(verse)),
 			},
 			this.selectedIndex
 		);
@@ -483,7 +486,7 @@ export class BibleSearchModal extends Modal {
 	 * Toggle a verse's selected state in multi-select mode
 	 */
 	private handleToggleSelect(verse: Verse) {
-		const key = this.verseKey(verse);
+		const key = verseKey(verse);
 		if (this.selectedVerseKeys.has(key)) {
 			this.selectedVerseKeys.delete(key);
 		} else {
@@ -491,14 +494,6 @@ export class BibleSearchModal extends Modal {
 		}
 		this.renderResults();
 		this.updateMultiSelectBar();
-	}
-
-	/**
-	 * Stable identity for a verse, since Verse objects aren't guaranteed to
-	 * be the same reference across re-renders of the same result set
-	 */
-	private verseKey(verse: Verse): string {
-		return `${verse.translation}|${verse.book_number}|${verse.chapter}|${verse.verse}`;
 	}
 
 	/**
@@ -510,14 +505,14 @@ export class BibleSearchModal extends Modal {
 		const ordered: Verse[] = [];
 
 		this.currentResults.forEach((verse, index) => {
-			if (this.selectedVerseKeys.has(this.verseKey(verse))) {
+			if (this.selectedVerseKeys.has(verseKey(verse))) {
 				ordered.push(verse);
 			}
 
 			// parallelResults is index-aligned with currentResults - see
 			// SearchResult.parallelResults
 			const parallel = this.parallelResults?.[index];
-			if (parallel && this.selectedVerseKeys.has(this.verseKey(parallel))) {
+			if (parallel && this.selectedVerseKeys.has(verseKey(parallel))) {
 				ordered.push(parallel);
 			}
 		});
@@ -548,6 +543,7 @@ export class BibleSearchModal extends Modal {
 				.join('\n');
 
 			editor.replaceSelection(formatted);
+			verses.forEach((verse) => this.plugin.markRecentlyInserted(verseKey(verse)));
 
 			this.close();
 
