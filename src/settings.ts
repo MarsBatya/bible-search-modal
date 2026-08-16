@@ -34,6 +34,9 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 
 		containerEl.empty();
+		// Scope element so our CSS below can't leak into Obsidian's core
+		// settings or other plugins' settings tabs (see styles.css)
+		containerEl.addClass('bible-search-settings');
 
 		// Database Configuration Section
 		containerEl.createEl('h2', { text: 'Database Configuration' });

@@ -249,40 +249,49 @@
 	font-style: italic;
 }
 
-/* Settings Tab Styling */
-.setting-item {
-	padding: 12px 0;
+/* Settings Tab Styling
+   Scoped under .bible-search-settings (added to containerEl in settings.ts).
+   .setting-item / .mod-cta / .checkbox-container etc. are Obsidian's own
+   core class names, reused for every settings tab (and, for .mod-cta,
+   buttons all over the app) - leaving these rules unscoped meant they
+   overrode Obsidian's/the active theme's own styling everywhere, not just
+   in this plugin's tab. Also using padding-top/bottom instead of the
+   shorthand `padding` below so we don't zero out whatever horizontal
+   padding the current theme provides. */
+.bible-search-settings .setting-item {
+	padding-top: 12px;
+	padding-bottom: 12px;
 	border-bottom: 1px solid var(--divider-color);
 }
 
-.setting-item:last-child {
+.bible-search-settings .setting-item:last-child {
 	border-bottom: none;
 }
 
-.setting-item-info {
+.bible-search-settings .setting-item-info {
 	flex-grow: 1;
 }
 
-.setting-item-name {
+.bible-search-settings .setting-item-name {
 	font-weight: 600;
 	color: var(--text-normal);
 }
 
-.setting-item-description {
+.bible-search-settings .setting-item-description {
 	color: var(--text-muted);
 	font-size: 13px;
 	margin-top: 4px;
 }
 
-.setting-item-control {
+.bible-search-settings .setting-item-control {
 	display: flex;
 	gap: 8px;
 	align-items: center;
 }
 
 /* Input fields in settings */
-.setting-item input[type="text"],
-.setting-item input[type="password"] {
+.bible-search-settings input[type="text"],
+.bible-search-settings input[type="password"] {
 	padding: 6px 8px;
 	border: 1px solid var(--input-border-color);
 	border-radius: 4px;
@@ -292,14 +301,14 @@
 	font-size: 12px;
 }
 
-.setting-item input[type="text"]:focus,
-.setting-item input[type="password"]:focus {
+.bible-search-settings input[type="text"]:focus,
+.bible-search-settings input[type="password"]:focus {
 	outline: none;
 	border-color: var(--text-accent);
 }
 
 /* Buttons */
-.mod-cta {
+.bible-search-settings .mod-cta {
 	background-color: var(--text-accent);
 	color: var(--text-on-accent);
 	padding: 8px 16px;
@@ -311,12 +320,12 @@
 	transition: all 0.2s ease;
 }
 
-.mod-cta:hover {
+.bible-search-settings .mod-cta:hover {
 	opacity: 0.9;
 }
 
 /* Toggle switches */
-.checkbox-container {
+.bible-search-settings .checkbox-container {
 	display: flex;
 	gap: 8px;
 	align-items: center;
