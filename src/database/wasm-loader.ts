@@ -18,8 +18,20 @@ export async function getWasmBinary(): Promise<ArrayBuffer> {
 	debug('Data URL length:', WASM_DATA_URL.length);
 
 	try {
-		const response = await fetch(WASM_DATA_URL);
-		cachedWasmBinary = await response.arrayBuffer();
+		// This is a local `data:` URL (the WASM binary inlined as base64 at
+		// build time, see esbuild.config.mjs), not an actual network
+		// request - decode it directly with atob() rather than fetch()
+		// (Obsidian's guidelines flag fetch() as a network-request API;
+		// it's also unclear whether requestUrl(), built for real HTTP
+		// requests, supports data: URLs at all).
+		const base64 = WASM_DATA_URL.slice(WASM_DATA_URL.indexOf(',') + 1);
+		const binaryString = atob(base64);
+		const bytes = new Uint8Array(binaryString.length);
+		for (let i = 0; i < binaryString.length; i++) {
+			bytes[i] = binaryString.charCodeAt(i);
+		}
+
+		cachedWasmBinary = bytes.buffer;
 		debug('Successfully loaded WASM binary, size:', cachedWasmBinary.byteLength);
 		return cachedWasmBinary;
 	} catch (error) {

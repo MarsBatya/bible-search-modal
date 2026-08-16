@@ -72,7 +72,6 @@ export async function search(
 
 	// Select database - try the detected language first, then fallback to the other
 	let selectedDb = language === 'KJV' ? kjvDb : rstDb;
-	let selectedLanguage = language;
 
 	// If the selected database is not loaded, try the other one
 	if (!selectedDb || !selectedDb.isLoaded) {
@@ -82,7 +81,6 @@ export async function search(
 				`[Search] ${language} database not loaded, falling back to ${language === 'KJV' ? 'RST' : 'KJV'}`
 			);
 			selectedDb = otherDb;
-			selectedLanguage = language === 'KJV' ? 'RST' : 'KJV';
 		} else {
 			throw new Error(
 				`No Bible database loaded. Please download KJV and/or RST databases in settings.`

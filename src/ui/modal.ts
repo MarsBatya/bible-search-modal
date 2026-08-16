@@ -106,7 +106,7 @@ export class BibleSearchModal extends Modal {
 
 		// Clear previous debounce timer
 		if (this.searchDebounceTimer !== null) {
-			clearTimeout(this.searchDebounceTimer);
+			window.clearTimeout(this.searchDebounceTimer);
 		}
 
 		if (!query || query.length === 0) {
@@ -214,7 +214,7 @@ export class BibleSearchModal extends Modal {
 	 */
 	private handleClear() {
 		if (this.searchDebounceTimer !== null) {
-			clearTimeout(this.searchDebounceTimer);
+			window.clearTimeout(this.searchDebounceTimer);
 			this.searchDebounceTimer = null;
 		}
 		if (this.currentSearchAbortController) {
@@ -396,7 +396,7 @@ export class BibleSearchModal extends Modal {
 	 */
 	private async expandToChapter(verse: Verse) {
 		if (this.searchDebounceTimer !== null) {
-			clearTimeout(this.searchDebounceTimer);
+			window.clearTimeout(this.searchDebounceTimer);
 			this.searchDebounceTimer = null;
 		}
 

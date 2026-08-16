@@ -32,7 +32,7 @@ export default class BibleSearchPlugin extends Plugin {
 		// Add commands
 		this.addCommand({
 			id: 'bible-search-open',
-			name: 'Open Bible Search',
+			name: 'Open bible search',
 			callback: () => {
 				this.openBibleSearch();
 			},
@@ -92,12 +92,12 @@ export default class BibleSearchPlugin extends Plugin {
 
 			if (!kjvLoaded && !rstLoaded) {
 				new Notice(
-					'Bible Search: Configure database URLs in settings and download databases'
+					'Bible search: Configure database urls in settings and download databases'
 				);
 			}
 		} catch (error) {
 			console.error('Failed to initialize databases:', error);
-			new Notice('Bible Search: Failed to initialize databases');
+			new Notice('Bible search: Failed to initialize databases');
 		}
 	}
 
@@ -135,7 +135,7 @@ export default class BibleSearchPlugin extends Plugin {
 			.filter((db): db is DatabaseInstance => !!db?.isLoaded);
 
 		if (loadedDbs.length === 0) {
-			new Notice('No Bible databases loaded. Please configure and download databases in settings.');
+			new Notice('No bible databases loaded. Please configure and download databases in settings.');
 			return;
 		}
 

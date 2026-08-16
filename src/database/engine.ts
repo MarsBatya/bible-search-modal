@@ -21,7 +21,7 @@ export class DatabaseEngine {
 
 	constructor(vault: Vault) {
 		this.vault = vault;
-		this.pluginDataDir = '.obsidian/plugins/bible-search-modal/';
+		this.pluginDataDir = `${vault.configDir}/plugins/bible-search-modal/`;
 	}
 
 	/**
@@ -232,16 +232,16 @@ export class DatabaseEngine {
 		const loadPromise = this.loadingPromises.get(translation);
 		if (loadPromise) {
 			// Wait for the loading promise with timeout
-			let timer: ReturnType<typeof setTimeout>;
+			let timer: number;
 			try {
 				return await Promise.race([
 					loadPromise,
 					new Promise<null>((_, reject) => {
-						timer = setTimeout(() => reject(new Error(`Database load timeout: ${translation}`)), timeoutMs);
+						timer = window.setTimeout(() => reject(new Error(`Database load timeout: ${translation}`)), timeoutMs);
 					}),
 				]);
 			} finally {
-				clearTimeout(timer!);
+				window.clearTimeout(timer!);
 			}
 		}
 
