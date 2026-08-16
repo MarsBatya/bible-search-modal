@@ -119,7 +119,7 @@ export class BibleSearchModal extends Modal {
 
 		// Debounce: wait for user to stop typing
 		this.searchDebounceTimer = window.setTimeout(() => {
-			this.performSearch(query);
+			void this.performSearch(query);
 		}, this.DEBOUNCE_DELAY);
 	}
 
@@ -440,8 +440,8 @@ export class BibleSearchModal extends Modal {
 				multiSelectMode: this.multiSelectMode,
 				isSelected: (verse) => this.selectedVerseKeys.has(verseKey(verse)),
 				onToggleSelect: (verse) => this.handleToggleSelect(verse),
-				onCopy: (verse) => this.copyVerse(verse),
-				onExpand: (verse) => this.expandToChapter(verse),
+				onCopy: (verse) => void this.copyVerse(verse),
+				onExpand: (verse) => void this.expandToChapter(verse),
 				isRecentlyPasted: (verse) => this.plugin.isRecentlyInserted(verseKey(verse)),
 			},
 			this.selectedIndex
@@ -478,7 +478,7 @@ export class BibleSearchModal extends Modal {
 			this.selectedVerseKeys.size,
 			() => this.insertSelectedVerses(),
 			() => this.toggleMultiSelectMode(),
-			() => this.copySelectedVerses()
+			() => void this.copySelectedVerses()
 		);
 	}
 

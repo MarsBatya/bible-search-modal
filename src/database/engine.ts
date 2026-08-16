@@ -91,8 +91,9 @@ export class DatabaseEngine {
 		const loadPromise = this.loadDbInternal(translation);
 		this.loadingPromises.set(translation, loadPromise);
 
-		// Clean up promise cache when done
-		loadPromise.finally(() => {
+		// Clean up promise cache when done (fire-and-forget - loadPromise
+		// itself is returned below and awaited by callers)
+		void loadPromise.finally(() => {
 			this.loadingPromises.delete(translation);
 		});
 
@@ -115,7 +116,7 @@ export class DatabaseEngine {
 			const fileData = await this.vault.adapter.readBinary(filePath);
 
 			// Create Uint8Array from ArrayBuffer
-			const data = new Uint8Array(fileData as ArrayBuffer);
+			const data = new Uint8Array(fileData);
 			debug(`[DB] Loaded ${translation} database file: ${data.byteLength} bytes`);
 
 			const db = new sqlJs.Database(data);

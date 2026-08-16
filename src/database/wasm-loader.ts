@@ -1,4 +1,6 @@
-// @ts-ignore - This import will be replaced by esbuild with a data URL
+// Resolves to a real string import via the `*.wasm` ambient declaration in
+// src/global.d.ts - esbuild's inline-wasm plugin replaces the actual module
+// at build time (see esbuild.config.mjs)
 import WASM_DATA_URL from 'sql.js/dist/sql-wasm.wasm';
 import { debug } from '../utils/logger';
 

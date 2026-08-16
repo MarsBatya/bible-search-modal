@@ -34,14 +34,35 @@ export interface ResultsViewOptions {
 
 /**
  * Render verse text into an element, expanding **bold** markers (added by
- * highlightKeywords) into <strong> tags, or plain text otherwise
+ * highlightKeywords) into <strong> elements, or plain text otherwise.
+ * Builds the DOM directly (createEl/appendText) rather than assigning
+ * innerHTML - the text always comes from the bundled SQLite databases, but
+ * this sidesteps HTML parsing entirely rather than relying on the content
+ * being safe.
  */
 function renderVerseText(container: HTMLElement, text: string): void {
-	if (text && text.includes('**')) {
-		// Contains markdown-style bold from highlightKeywords
-		container.innerHTML = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-	} else {
-		container.textContent = text || '(No text available)';
+	container.empty();
+
+	if (!text) {
+		container.setText('(No text available)');
+		return;
+	}
+
+	if (!text.includes('**')) {
+		container.setText(text);
+		return;
+	}
+
+	// Split on **bold** markers, keeping the markers in the result so we
+	// can tell bold segments from plain ones
+	const parts = text.split(/(\*\*[^*]+\*\*)/g);
+	for (const part of parts) {
+		const boldMatch = /^\*\*([^*]+)\*\*$/.exec(part);
+		if (boldMatch) {
+			container.createEl('strong', { text: boldMatch[1] ?? '' });
+		} else if (part) {
+			container.appendText(part);
+		}
 	}
 }
 
@@ -163,7 +184,6 @@ export function renderVerseResult(
 			options.onSelect(verse);
 		}
 	});
-	mainVerseEl.style.cursor = 'pointer';
 
 	// Parallel verse (if available)
 	if (parallelVerse) {
@@ -208,7 +228,6 @@ export function renderVerseResult(
 				options.onSelect(parallelVerse);
 			}
 		});
-		parallelEl.style.cursor = 'pointer';
 	}
 }
 
@@ -258,7 +277,7 @@ export function createSearchInput(
 		type: 'text',
 		cls: 'bible-search-input',
 		placeholder,
-	}) as HTMLInputElement;
+	});
 
 	input.addEventListener('input', (e) => {
 		onInput((e.target as HTMLInputElement).value);

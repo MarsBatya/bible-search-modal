@@ -23,8 +23,6 @@ export default class BibleSearchPlugin extends Plugin {
 	private recentlyInserted = new RecentVerseTracker(200);
 
 	async onload() {
-		console.log('Loading Bible Search plugin...');
-
 		// Load settings
 		await this.loadSettings();
 
@@ -65,14 +63,8 @@ export default class BibleSearchPlugin extends Plugin {
 		// Add settings tab
 		this.addSettingTab(new BibleSearchSettingTab(this.app, this));
 
-		// Initialize databases on first load (async, don't block)
-		this.initializeDatabases();
-
-		console.log('Bible Search plugin loaded successfully');
-	}
-
-	onunload() {
-		console.log('Unloading Bible Search plugin');
+		// Initialize databases on first load (async, don't block onload)
+		void this.initializeDatabases();
 	}
 
 	async loadSettings() {

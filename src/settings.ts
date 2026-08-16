@@ -39,7 +39,7 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 		containerEl.addClass('bible-search-settings');
 
 		// Database Configuration Section
-		containerEl.createEl('h2', { text: 'Database Configuration' });
+		new Setting(containerEl).setName('Database Configuration').setHeading();
 
 		new Setting(containerEl)
 			.setName('KJV Database URL')
@@ -94,7 +94,7 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 			);
 
 		// Search & Display Section
-		containerEl.createEl('h2', { text: 'Search & Display' });
+		new Setting(containerEl).setName('Search & Display').setHeading();
 
 		new Setting(containerEl)
 			.setName('Verse Format Template')
@@ -154,7 +154,7 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 			);
 
 		// UI Preferences Section
-		containerEl.createEl('h2', { text: 'UI Preferences' });
+		new Setting(containerEl).setName('UI Preferences').setHeading();
 
 		new Setting(containerEl)
 			.setName('Results Per Page')

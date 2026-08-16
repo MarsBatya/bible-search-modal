@@ -10,10 +10,11 @@ export function levenshteinDistance(str1: string, str2: string): number {
 	const len1 = str1.length;
 	const len2 = str2.length;
 
-	// Create matrix
-	const matrix: number[][] = Array(len1 + 1)
-		.fill(null)
-		.map(() => Array(len2 + 1).fill(0) as number[]) as number[][];
+	// Create matrix. Array.from with a mapper (rather than Array(n).fill(...))
+	// lets TypeScript infer number[][] cleanly with no assertions needed.
+	const matrix: number[][] = Array.from({ length: len1 + 1 }, () =>
+		Array.from({ length: len2 + 1 }, () => 0)
+	);
 
 	// Initialize first row and column
 	for (let i = 0; i <= len1; i++) {

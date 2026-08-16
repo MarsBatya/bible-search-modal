@@ -9,6 +9,6 @@ export const DEBUG = false;
 
 export function debug(...args: unknown[]): void {
 	if (DEBUG) {
-		console.log(...args);
+		console.debug(...args);
 	}
 }
