@@ -59,6 +59,15 @@ export class BibleSearchModal extends Modal {
 		super(app);
 		this.plugin = plugin;
 		this.modalEl.classList.add('bible-search-modal');
+
+		// Obsidian's own Modal has built-in logic to restore the editor's
+		// selection on close (shouldRestoreSelection, on by default) - it
+		// doesn't know we've just inserted text, so it was very likely
+		// fighting our own restoreEditorFocus() and sometimes winning,
+		// reapplying whatever it captured at open-time regardless of the
+		// edit we just made. We do our own restore deliberately (see
+		// insertTextAtEditor/restoreEditorFocus), so opt out of Obsidian's.
+		this.shouldRestoreSelection = false;
 	}
 
 	/**
