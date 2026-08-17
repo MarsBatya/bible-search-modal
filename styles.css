@@ -362,6 +362,24 @@
    in this plugin's tab. Also using padding-top/bottom instead of the
    shorthand `padding` below so we don't zero out whatever horizontal
    padding the current theme provides. */
+.bible-search-settings-header {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 16px;
+}
+
+.bible-search-logo {
+	color: var(--text-accent);
+	flex-shrink: 0;
+}
+
+.bible-search-settings-title {
+	font-size: 18px;
+	font-weight: 700;
+	color: var(--text-normal);
+}
+
 .bible-search-settings .setting-item {
 	padding-top: 12px;
 	padding-bottom: 12px;

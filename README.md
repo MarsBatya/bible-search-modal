@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="Bible Search logo" width="120" height="120">
+</p>
+
 # Bible Search - Obsidian Plugin
 
 A powerful Obsidian plugin for searching and inserting Bible verses with bilingual support (KJV English + RST Russian). Search by verse address or keywords, with automatic language detection and customizable formatting.

@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting, Notice } from 'obsidian';
 import BibleSearchPlugin from './main';
 import { getDefaultVerseFormat, validateTemplate } from './utils/formatter';
+import { renderLogo } from './ui/logo';
 
 export interface BibleSearchSettings {
 	kjvDbUrl: string;
@@ -37,6 +38,10 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 		// Scope element so our CSS below can't leak into Obsidian's core
 		// settings or other plugins' settings tabs (see styles.css)
 		containerEl.addClass('bible-search-settings');
+
+		const header = containerEl.createDiv({ cls: 'bible-search-settings-header' });
+		renderLogo(header, 40);
+		header.createSpan({ text: 'Bible Search', cls: 'bible-search-settings-title' });
 
 		// Database Configuration Section
 		new Setting(containerEl).setName('Database configuration').setHeading();
