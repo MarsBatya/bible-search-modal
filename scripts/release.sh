@@ -20,55 +20,22 @@ fi
 
 echo "Updating version from $CURRENT_VERSION to $NEW_VERSION"
 
-jq --tab --arg new_version "$NEW_VERSION" '.version = $new_version' manifest.json > manifest.tmp
-printf '%s' "$(cat manifest.tmp)" > manifest.json
-rm manifest.tmp
+# `npm version` bumps package.json (and package-lock.json), then runs the
+# "version" lifecycle script from package.json - version-bump.mjs, which
+# updates manifest.json and versions.json to match - and stages all of them.
+# It also commits and creates an annotated tag itself, so package.json,
+# manifest.json and versions.json land in the same commit instead of drifting
+# apart (.npmrc sets tag-version-prefix="" so the tag comes out as
+# "$NEW_VERSION", not "v$NEW_VERSION", matching this repo's existing tags).
+npm version "$NEW_VERSION" -m "bump version to %s"
 
-# Check if jq update was successful
+# Check if npm version was successful
 if [ $? -ne 0 ]; then
-    echo "Error: Failed to update version in manifest.json"
+    echo "Error: Failed to bump version"
     return 1
 fi
 
-echo "Version updated in manifest.json"
-
-# Stage the manifest.json file
-git add manifest.json
-
-# Check if git add was successful
-if [ $? -ne 0 ]; then
-    echo "Error: Failed to stage manifest.json"
-    return 1
-fi
-
-# Commit the version change
-git commit -m "bump version to $NEW_VERSION"
-
-# Check if commit was successful
-if [ $? -ne 0 ]; then
-    echo "Error: Failed to commit version change"
-    return 1
-fi
-
-# Commit the version change
-git push origin master
-
-# Check if commit was successful
-if [ $? -ne 0 ]; then
-    echo "Error: Failed to push version change"
-    return 1
-fi
-
-echo "Pushed version change to origin"
-
-# Create annotated tag
-echo "Creating git tag for version: $NEW_VERSION"
-git tag -a "$NEW_VERSION" -m "$NEW_VERSION"
-
-if [ $? -ne 0 ]; then
-    echo "Error: Failed to create git tag"
-    return 1
-fi
+echo "Version bumped, committed, and tagged"
 
 echo "Pushing commits and tag to origin..."
 git push origin master --follow-tags
