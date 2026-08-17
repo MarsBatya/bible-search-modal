@@ -344,16 +344,40 @@ export class BibleSearchModal extends Modal {
 	}
 
 	/**
-	 * Hand focus back to the note editor and scroll to `pos`, deferred a
-	 * tick so it runs after the modal's own close-time DOM cleanup - on
-	 * mobile that cleanup can otherwise leave focus (and the visible cursor)
-	 * in the wrong place even though the underlying selection is correct.
+	 * Hand focus back to the note editor and scroll to `pos`. Reasserts a
+	 * few times over the next moment rather than once - on mobile, closing
+	 * the modal and dismissing the on-screen keyboard both do their own
+	 * focus handling slightly asynchronously, and if either of those lands
+	 * *after* a single one-shot restore, it can silently win and leave the
+	 * cursor wherever it left it (often the top of the file). Calling
+	 * setSelection/focus repeatedly is cheap and idempotent, so brute-forcing
+	 * "whichever runs last wins" is more reliable here than trying to guess
+	 * the one correct delay.
 	 */
 	private restoreEditorFocus(editor: Editor, pos: EditorPosition) {
-		window.setTimeout(() => {
+		const reassert = () => {
+			editor.setSelection(pos);
 			editor.focus();
 			editor.scrollIntoView({ from: pos, to: pos }, true);
-		}, 0);
+		};
+		reassert();
+		window.setTimeout(reassert, 50);
+		window.setTimeout(reassert, 250);
+	}
+
+	/**
+	 * Blur the search input, close the modal, and hand focus back to the
+	 * note editor. Blurring first (rather than leaving it as a side effect
+	 * of the modal tearing down) lets the on-screen keyboard start hiding
+	 * immediately, in parallel with the modal's own close transition,
+	 * instead of only starting once that transition finishes - on mobile
+	 * that serialization is most of what reads as "lag" between tapping a
+	 * verse and seeing it land in the note.
+	 */
+	private closeAndRestoreFocus(inserted: { editor: Editor; endPos: EditorPosition }) {
+		this.searchInput.blur();
+		this.close();
+		this.restoreEditorFocus(inserted.editor, inserted.endPos);
 	}
 
 	/**
@@ -372,10 +396,7 @@ export class BibleSearchModal extends Modal {
 			if (!inserted) return;
 
 			this.plugin.markRecentlyInserted(verseKey(verse));
-
-			// Close modal
-			this.close();
-			this.restoreEditorFocus(inserted.editor, inserted.endPos);
+			this.closeAndRestoreFocus(inserted);
 
 			new Notice(`Inserted: ${verse.book_name_short} ${verse.chapter}:${verse.verse}`);
 		} catch (error) {
@@ -590,9 +611,7 @@ export class BibleSearchModal extends Modal {
 			if (!inserted) return;
 
 			verses.forEach((verse) => this.plugin.markRecentlyInserted(verseKey(verse)));
-
-			this.close();
-			this.restoreEditorFocus(inserted.editor, inserted.endPos);
+			this.closeAndRestoreFocus(inserted);
 
 			new Notice(`Inserted ${verses.length} verse${verses.length === 1 ? '' : 's'}`);
 		} catch (error) {
