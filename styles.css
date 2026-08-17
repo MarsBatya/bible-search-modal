@@ -109,6 +109,12 @@
 	cursor: pointer;
 	transition: all 0.2s ease;
 	background-color: var(--background-secondary);
+	/* Without this, mobile browsers wait ~300ms after a tap before firing
+	   the click event, to see if it turns into a double-tap-to-zoom gesture
+	   - that delay is the "lag" between tapping a verse and it landing in
+	   the note. This tells the browser taps here are never for zooming, so
+	   click fires immediately. */
+	touch-action: manipulation;
 }
 
 .bible-verse-result:hover {
@@ -153,6 +159,7 @@
 
 .main-verse {
 	cursor: pointer;
+	touch-action: manipulation;
 }
 
 .main-verse:hover {
@@ -196,6 +203,7 @@
 	padding-top: 12px;
 	border-top: 1px solid var(--divider-color);
 	cursor: pointer;
+	touch-action: manipulation;
 	opacity: 0.9;
 	margin-left: 8px;
 	border-left: 3px solid var(--text-muted);
@@ -245,6 +253,7 @@
 	align-items: center;
 	justify-content: center;
 	flex-shrink: 0;
+	touch-action: manipulation;
 }
 
 .bible-verse-result.selected .verse-actions {

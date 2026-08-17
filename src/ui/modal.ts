@@ -1,4 +1,4 @@
-import { App, Modal, Notice } from 'obsidian';
+import { App, Modal, Notice, Editor, EditorPosition } from 'obsidian';
 import BibleSearchPlugin from '../main';
 import { Verse } from '../types';
 import { search } from '../search/engine';
@@ -31,6 +31,16 @@ export class BibleSearchModal extends Modal {
 	private searchQuery: string = '';
 	private initialQuery: string = '';
 
+	// The editor and selection/cursor to insert into, captured when the
+	// modal opens rather than looked up fresh at insert time. On mobile the
+	// on-screen keyboard closing when the modal opens can leave the note
+	// editor's *live* selection reset to the start of the file by the time a
+	// verse is tapped, which was inserting verses at the top of the note
+	// instead of where the cursor actually was. Pinning it down up front
+	// sidesteps that regardless of what the live selection does in between.
+	private targetEditor: Editor | null = null;
+	private insertRange: { from: EditorPosition; to: EditorPosition } | null = null;
+
 	// Multi-select mode: pick several verses, then insert them all at once,
 	// each on its own line. Picks are keyed by "translation|book|chapter|verse"
 	// since Verse objects aren't guaranteed to be the same reference across
@@ -59,6 +69,14 @@ export class BibleSearchModal extends Modal {
 	}
 
 	onOpen() {
+		// Capture the target editor and its selection/cursor now, before the
+		// modal takes over focus - see the comment on targetEditor above.
+		const activeEditor = this.app.workspace.activeEditor?.editor ?? null;
+		this.targetEditor = activeEditor;
+		this.insertRange = activeEditor
+			? { from: activeEditor.getCursor('from'), to: activeEditor.getCursor('to') }
+			: null;
+
 		const { contentEl } = this;
 		contentEl.empty();
 
@@ -303,16 +321,46 @@ export class BibleSearchModal extends Modal {
 	}
 
 	/**
+	 * Replace the captured insert range (see targetEditor/insertRange) with
+	 * `text`, falling back to the editor's live cursor if the modal somehow
+	 * opened without one captured. Leaves the model's selection at the end
+	 * of the inserted text; call restoreEditorFocus() after closing the
+	 * modal to hand focus back and scroll there.
+	 */
+	private insertTextAtEditor(text: string): { editor: Editor; endPos: EditorPosition } | null {
+		const editor = this.targetEditor ?? this.app.workspace.activeEditor?.editor;
+		if (!editor) {
+			new Notice('No active editor');
+			return null;
+		}
+
+		const range = this.insertRange ?? { from: editor.getCursor(), to: editor.getCursor() };
+		editor.replaceRange(text, range.from, range.to);
+
+		const endPos = editor.offsetToPos(editor.posToOffset(range.from) + text.length);
+		editor.setSelection(endPos);
+
+		return { editor, endPos };
+	}
+
+	/**
+	 * Hand focus back to the note editor and scroll to `pos`, deferred a
+	 * tick so it runs after the modal's own close-time DOM cleanup - on
+	 * mobile that cleanup can otherwise leave focus (and the visible cursor)
+	 * in the wrong place even though the underlying selection is correct.
+	 */
+	private restoreEditorFocus(editor: Editor, pos: EditorPosition) {
+		window.setTimeout(() => {
+			editor.focus();
+			editor.scrollIntoView({ from: pos, to: pos }, true);
+		}, 0);
+	}
+
+	/**
 	 * Insert verse into active editor
 	 */
 	private insertVerse(verse: Verse) {
 		try {
-			const editor = this.app.workspace.activeEditor?.editor;
-			if (!editor) {
-				new Notice('No active editor');
-				return;
-			}
-
 			// Format verse using template
 			const formattedVerse = formatVerse(
 				verse,
@@ -320,12 +368,14 @@ export class BibleSearchModal extends Modal {
 				this.plugin.settings.stripMarkup
 			);
 
-			// Insert at cursor
-			editor.replaceSelection(formattedVerse);
+			const inserted = this.insertTextAtEditor(formattedVerse);
+			if (!inserted) return;
+
 			this.plugin.markRecentlyInserted(verseKey(verse));
 
 			// Close modal
 			this.close();
+			this.restoreEditorFocus(inserted.editor, inserted.endPos);
 
 			new Notice(`Inserted: ${verse.book_name_short} ${verse.chapter}:${verse.verse}`);
 		} catch (error) {
@@ -530,22 +580,19 @@ export class BibleSearchModal extends Modal {
 		}
 
 		try {
-			const editor = this.app.workspace.activeEditor?.editor;
-			if (!editor) {
-				new Notice('No active editor');
-				return;
-			}
-
 			const formatted = verses
 				.map((verse) =>
 					formatVerse(verse, this.plugin.settings.verseFormat, this.plugin.settings.stripMarkup)
 				)
 				.join('\n');
 
-			editor.replaceSelection(formatted);
+			const inserted = this.insertTextAtEditor(formatted);
+			if (!inserted) return;
+
 			verses.forEach((verse) => this.plugin.markRecentlyInserted(verseKey(verse)));
 
 			this.close();
+			this.restoreEditorFocus(inserted.editor, inserted.endPos);
 
 			new Notice(`Inserted ${verses.length} verse${verses.length === 1 ? '' : 's'}`);
 		} catch (error) {
