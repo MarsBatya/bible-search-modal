@@ -68,12 +68,10 @@ export function findBestMatch(input: string, candidates: string[]): string | nul
 	}
 
 	// Step 3: Use Levenshtein distance
-	let bestMatch: string | null = candidates[0] ?? null;
-	if (!bestMatch) return null;
+	let bestMatch: string | null = null;
+	let minDistance = Infinity;
 
-	let minDistance = levenshteinDistance(inputLower, bestMatch.toLowerCase());
-
-	for (const candidate of candidates.slice(1)) {
+	for (const candidate of candidates) {
 		const distance = levenshteinDistance(inputLower, candidate.toLowerCase());
 		if (distance < minDistance) {
 			minDistance = distance;
@@ -81,6 +79,12 @@ export function findBestMatch(input: string, candidates: string[]): string | nul
 		}
 	}
 
-	// Only return if distance is reasonably close (threshold: 3)
-	return minDistance <= 3 ? bestMatch : null;
+	if (!bestMatch) return null;
+
+	// Only return if distance is reasonably close:
+	// - Distance must be <= 3
+	// - Never match if every character differs (distance >= input length)
+	// - Max allowed edit distance scales with input length
+	const maxAllowedDistance = Math.min(3, Math.max(1, Math.floor(inputLower.length / 2)));
+	return minDistance <= maxAllowedDistance && minDistance < inputLower.length ? bestMatch : null;
 }

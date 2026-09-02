@@ -2,15 +2,33 @@ import { ParsedReference } from '../types';
 import { BIBLE_BOOKS, REFERENCE_PATTERN } from '../utils/constants';
 import { findBestMatch } from '../utils/fuzz';
 
-// Precomputed once since BIBLE_BOOKS is static
-const ALL_BOOK_NAMES = [
-	...BIBLE_BOOKS.map((b) => b.long_name),
-	...BIBLE_BOOKS.map((b) => b.short_name),
-];
+interface BookCandidateEntry {
+	name: string;
+	book_number: number;
+}
+
+const LATIN_BOOK_ENTRIES: BookCandidateEntry[] = [];
+const CYRILLIC_BOOK_ENTRIES: BookCandidateEntry[] = [];
+
+for (const book of BIBLE_BOOKS) {
+	LATIN_BOOK_ENTRIES.push({ name: book.long_name, book_number: book.book_number });
+	LATIN_BOOK_ENTRIES.push({ name: book.short_name, book_number: book.book_number });
+
+	for (const abbr of book.abbreviations) {
+		if (/[а-яёА-ЯЁ]/.test(abbr)) {
+			CYRILLIC_BOOK_ENTRIES.push({ name: abbr, book_number: book.book_number });
+		} else {
+			LATIN_BOOK_ENTRIES.push({ name: abbr, book_number: book.book_number });
+		}
+	}
+}
+
+const LATIN_CANDIDATE_NAMES = Array.from(new Set(LATIN_BOOK_ENTRIES.map((e) => e.name)));
+const CYRILLIC_CANDIDATE_NAMES = Array.from(new Set(CYRILLIC_BOOK_ENTRIES.map((e) => e.name)));
 
 /**
  * Bible reference parser
- * Parses addresses like "John 3:16", "jn 3 16", "Gen 1:4-5", "Rom 8"
+ * Parses addresses like "John 3:16", "jn 3 16", "Gen 1:4-5", "Rom 8", "3Цар 4", "Ин. 3:16"
  */
 
 /**
@@ -90,30 +108,37 @@ export function parseReference(input: string): ParsedReference | null {
 }
 
 /**
- * Find book number by book name (with fuzzy matching)
+ * Find book number by book name (with exact matching and script-isolated fuzzy matching)
  */
 function findBookNumber(bookName: string): number | null {
-	// Try to find abbreviations in database
+	const cleaned = bookName.trim().replace(/\.+$/, '').toLowerCase();
+	if (!cleaned) return null;
+
+	// Step 1: Exact match against short/long names and abbreviations
 	for (const book of BIBLE_BOOKS) {
+		if (book.short_name.toLowerCase() === cleaned || book.long_name.toLowerCase() === cleaned) {
+			return book.book_number;
+		}
 		for (const abbr of book.abbreviations) {
-			if (abbr.toLowerCase() === bookName.toLowerCase()) {
+			const cleanAbbr = abbr.trim().replace(/\.+$/, '').toLowerCase();
+			if (cleanAbbr === cleaned) {
 				return book.book_number;
 			}
 		}
 	}
 
-	// Use fuzzy matching on all names
-	const match = findBestMatch(bookName, ALL_BOOK_NAMES);
+	// Step 2: Fuzzy matching scoped to matching script (Cyrillic vs Latin)
+	const isCyrillic = /[а-яёА-ЯЁ]/.test(cleaned);
+	const candidates = isCyrillic ? CYRILLIC_CANDIDATE_NAMES : LATIN_CANDIDATE_NAMES;
+	const entries = isCyrillic ? CYRILLIC_BOOK_ENTRIES : LATIN_BOOK_ENTRIES;
+
+	const match = findBestMatch(cleaned, candidates);
 	if (!match) {
 		return null;
 	}
 
-	// Find the book with this name
-	const book = BIBLE_BOOKS.find(
-		(b) => b.long_name === match || b.short_name === match
-	);
-
-	return book?.book_number ?? null;
+	const entry = entries.find((e) => e.name.toLowerCase() === match.toLowerCase());
+	return entry?.book_number ?? null;
 }
 
 /**

@@ -84,6 +84,57 @@ describe('Bible Reference Parser', () => {
 			expect(result?.verseStart).toBe(16);
 		});
 
+		it('should parse 3Цар (1 Kings in Russian tradition)', () => {
+			const result1 = parseReference('3Цар 4');
+			expect(result1).not.toBeNull();
+			expect(result1?.book_number).toBe(BOOK_MAPPINGS.FIRST_KINGS);
+			expect(result1?.chapter).toBe(4);
+
+			const result2 = parseReference('3 Цар 4');
+			expect(result2).not.toBeNull();
+			expect(result2?.book_number).toBe(BOOK_MAPPINGS.FIRST_KINGS);
+			expect(result2?.chapter).toBe(4);
+
+			const result3 = parseReference('3 Цар. 4');
+			expect(result3).not.toBeNull();
+			expect(result3?.book_number).toBe(BOOK_MAPPINGS.FIRST_KINGS);
+			expect(result3?.chapter).toBe(4);
+		});
+
+		it('should parse 4Цар (2 Kings in Russian tradition)', () => {
+			const result = parseReference('4Цар 2:1');
+			expect(result).not.toBeNull();
+			expect(result?.book_number).toBe(BOOK_MAPPINGS.SECOND_KINGS);
+			expect(result?.chapter).toBe(2);
+			expect(result?.verseStart).toBe(1);
+		});
+
+		it('should correctly distinguish Ион (Jonah) and Иов (Job)', () => {
+			const jonah = parseReference('Ион 3');
+			expect(jonah).not.toBeNull();
+			expect(jonah?.book_number).toBe(BOOK_MAPPINGS.JONAH);
+			expect(jonah?.chapter).toBe(3);
+
+			const job = parseReference('Иов 3');
+			expect(job).not.toBeNull();
+			expect(job?.book_number).toBe(BOOK_MAPPINGS.JOB);
+			expect(job?.chapter).toBe(3);
+		});
+
+		it('should parse Russian references with ordinal prefixes and dots', () => {
+			const samuel = parseReference('1-я Царств 3:1');
+			expect(samuel).not.toBeNull();
+			expect(samuel?.book_number).toBe(BOOK_MAPPINGS.FIRST_SAMUEL);
+			expect(samuel?.chapter).toBe(3);
+			expect(samuel?.verseStart).toBe(1);
+
+			const matthew = parseReference('Мф. 5:3');
+			expect(matthew).not.toBeNull();
+			expect(matthew?.book_number).toBe(BOOK_MAPPINGS.MATTHEW);
+			expect(matthew?.chapter).toBe(5);
+			expect(matthew?.verseStart).toBe(3);
+		});
+
 		it('should resolve a book name with a typo via fuzzy matching', () => {
 			// Missing the second "t" in "Matthew"
 			const result = parseReference('Mathew 5:3');
