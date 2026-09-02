@@ -90,15 +90,15 @@ export const BOOK_NUMBER_TO_NAME: Record<number, string> = Object.fromEntries(
  * Genesis (1) -> 10, John (43) -> 430, Revelation (66) -> 660
  */
 export function getBookNumberFromPosition(position: number): number {
-	return position * 10;
+	return ALL_BOOKS[position - 1] ?? 0;
 }
 
 /**
  * Get book position from book_number
- * 10 -> 1, 430 -> 43, 660 -> 66
  */
 export function getPositionFromBookNumber(bookNumber: number): number {
-	return bookNumber / 10;
+	const index = ALL_BOOKS.indexOf(bookNumber);
+	return index !== -1 ? index + 1 : 0;
 }
 
 /**
@@ -126,6 +126,7 @@ export const OT_BOOKS = [
 	BOOK_MAPPINGS.PSALMS,
 	BOOK_MAPPINGS.PROVERBS,
 	BOOK_MAPPINGS.ECCLESIASTES,
+	BOOK_MAPPINGS.SONG_OF_SOLOMON,
 	BOOK_MAPPINGS.ISAIAH,
 	BOOK_MAPPINGS.JEREMIAH,
 	BOOK_MAPPINGS.LAMENTATIONS,

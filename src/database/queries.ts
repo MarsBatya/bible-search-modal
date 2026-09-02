@@ -23,18 +23,20 @@ function capitalizeFirst(str: string): string {
  * if the row is missing.
  */
 export function getRussianNumbering(db: initSqlJs.Database): boolean {
+	let stmt;
 	try {
-		const stmt = db.prepare(`SELECT value FROM info WHERE name = 'russian_numbering'`);
+		stmt = db.prepare(`SELECT value FROM info WHERE name = 'russian_numbering'`);
 		let result = false;
 		if (stmt.step()) {
 			const row = stmt.getAsObject() as Record<string, unknown>;
 			result = row.value === 'true';
 		}
-		stmt.free();
 		return result;
 	} catch (error) {
 		console.error('Error reading russian_numbering flag:', error);
 		return false;
+	} finally {
+		if (stmt) stmt.free();
 	}
 }
 
@@ -70,8 +72,9 @@ export function getBooks(dbInstance: DatabaseInstance): BookMapping[] {
 
 	const books: BookMapping[] = [];
 
+	let stmt;
 	try {
-		const stmt = dbInstance.db.prepare(
+		stmt = dbInstance.db.prepare(
 			'SELECT book_number, short_name, long_name FROM books ORDER BY book_number'
 		);
 
@@ -84,10 +87,11 @@ export function getBooks(dbInstance: DatabaseInstance): BookMapping[] {
 				abbreviations: [], // Will be populated by parser
 			});
 		}
-		stmt.free();
 	} catch (error) {
 		console.error('Error fetching books:', error);
 		throw new Error('Failed to fetch books from database');
+	} finally {
+		if (stmt) stmt.free();
 	}
 
 	return books;
@@ -106,8 +110,9 @@ export function getVerse(
 		throw new Error('Database not loaded');
 	}
 
+	let stmt;
 	try {
-		const stmt = dbInstance.db.prepare(
+		stmt = dbInstance.db.prepare(
 			`${VERSE_SELECT} WHERE v.book_number = ? AND v.chapter = ? AND v.verse = ?`
 		);
 
@@ -115,17 +120,17 @@ export function getVerse(
 
 		if (stmt.step()) {
 			const result = mapRowToVerse(stmt.getAsObject(), dbInstance.translation);
-			stmt.free();
 			debug(`[DB] Found verse: ${result.book_name_short} ${result.chapter}:${result.verse}`);
 			return result;
 		}
 
 		debug(`[DB] Verse not found: Book#${bookNumber}, Ch${chapter}:V${verse}`);
-		stmt.free();
 		return null;
 	} catch (error) {
 		console.error('Error fetching verse:', error);
 		return null;
+	} finally {
+		if (stmt) stmt.free();
 	}
 }
 
@@ -143,9 +148,10 @@ export function getChapter(
 
 	const verses: Verse[] = [];
 
+	let stmt;
 	try {
 		debug(`[DB] getChapter: Book#${bookNumber}, Chapter${chapter} from ${dbInstance.translation}`);
-		const stmt = dbInstance.db.prepare(
+		stmt = dbInstance.db.prepare(
 			`${VERSE_SELECT} WHERE v.book_number = ? AND v.chapter = ? ORDER BY v.verse`
 		);
 
@@ -156,9 +162,10 @@ export function getChapter(
 		}
 
 		debug(`[DB] getChapter found ${verses.length} verses`);
-		stmt.free();
 	} catch (error) {
 		console.error('Error fetching chapter:', error);
+	} finally {
+		if (stmt) stmt.free();
 	}
 
 	return verses;
@@ -180,10 +187,11 @@ export function getVerseRange(
 
 	const verses: Verse[] = [];
 
+	let stmt;
 	try {
 		debug(`[DB] getVerseRange: Book#${bookNumber}, Ch${chapter}:${verseStart}-${verseEnd} from ${dbInstance.translation}`);
 
-		const stmt = dbInstance.db.prepare(
+		stmt = dbInstance.db.prepare(
 			`${VERSE_SELECT} WHERE v.book_number = ? AND v.chapter = ? AND v.verse BETWEEN ? AND ? ORDER BY v.verse`
 		);
 
@@ -194,9 +202,10 @@ export function getVerseRange(
 		}
 
 		debug(`[DB] getVerseRange found ${verses.length} verses`);
-		stmt.free();
 	} catch (error) {
 		console.error('Error fetching verse range:', error);
+	} finally {
+		if (stmt) stmt.free();
 	}
 
 	return verses;
@@ -213,11 +222,14 @@ export function getRandomVerse(dbInstance: DatabaseInstance): Verse | null {
 		throw new Error('Database not loaded');
 	}
 
+	let countStmt;
+	let stmt;
 	try {
-		const countStmt = dbInstance.db.prepare('SELECT COUNT(*) as count FROM verses');
+		countStmt = dbInstance.db.prepare('SELECT COUNT(*) as count FROM verses');
 		countStmt.step();
 		const { count } = countStmt.getAsObject() as Record<string, number>;
 		countStmt.free();
+		countStmt = undefined;
 
 		if (!count || count <= 0) {
 			return null;
@@ -225,7 +237,7 @@ export function getRandomVerse(dbInstance: DatabaseInstance): Verse | null {
 
 		const offset = Math.floor(Math.random() * count);
 
-		const stmt = dbInstance.db.prepare(
+		stmt = dbInstance.db.prepare(
 			`${VERSE_SELECT} ORDER BY v.rowid LIMIT 1 OFFSET ?`
 		);
 		stmt.bind([offset]);
@@ -234,12 +246,14 @@ export function getRandomVerse(dbInstance: DatabaseInstance): Verse | null {
 		if (stmt.step()) {
 			result = mapRowToVerse(stmt.getAsObject(), dbInstance.translation);
 		}
-		stmt.free();
 
 		return result;
 	} catch (error) {
 		console.error('Error fetching random verse:', error);
 		return null;
+	} finally {
+		if (countStmt) countStmt.free();
+		if (stmt) stmt.free();
 	}
 }
 
@@ -263,6 +277,7 @@ export function searchVersesKeyword(
 	const verses: Verse[] = [];
 	const startTime = performance.now();
 
+	let stmt;
 	try {
 		// Build WHERE clause with LIKE conditions for each keyword
 		// Note: sql.js UPPER() doesn't work for Cyrillic, so we use case-insensitive approach
@@ -283,7 +298,7 @@ export function searchVersesKeyword(
 		const query = `${VERSE_SELECT} WHERE ${whereConditions} LIMIT ?`;
 
 		debug('[DB Query] Searching for keywords:', keywords);
-		const stmt = dbInstance.db.prepare(query);
+		stmt = dbInstance.db.prepare(query);
 
 		// Bind keywords with wildcard matching (%keyword%)
 		// For Cyrillic, add both lowercase and capitalized versions
@@ -305,12 +320,13 @@ export function searchVersesKeyword(
 		}
 		const rowTime = performance.now() - rowStartTime;
 
-		stmt.free();
 		const totalTime = performance.now() - startTime;
 		debug(`[DB Query] Found ${verses.length} verses for keywords: ${keywords.join(', ')} (${totalTime.toFixed(2)}ms total, ${rowTime.toFixed(2)}ms rows)`);
 	} catch (error) {
 		console.error('Error searching verses:', error);
 		console.error('Keywords:', keywords);
+	} finally {
+		if (stmt) stmt.free();
 	}
 
 	return verses;

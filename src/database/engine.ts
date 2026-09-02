@@ -16,7 +16,6 @@ export class DatabaseEngine {
 
 	// Track loading state
 	private loadingPromises: Map<'KJV' | 'RST', Promise<DatabaseInstance | null>> = new Map();
-	private isInitializing = false;
 	private initPromise: Promise<void> | null = null;
 
 	constructor(vault: Vault) {
@@ -33,36 +32,45 @@ export class DatabaseEngine {
 			return;
 		}
 
+		if (this.initPromise) {
+			debug('[SQL.JS] Initialization already in progress, waiting...');
+			return this.initPromise;
+		}
+
 		debug('[SQL.JS] Starting initialization...');
 
-		try {
-			// Get the embedded WASM binary
-			debug('[SQL.JS] Loading embedded WASM binary...');
-			let wasmBinary: ArrayBuffer | undefined;
-
+		this.initPromise = (async () => {
 			try {
-				wasmBinary = await getWasmBinary();
-				debug('[SQL.JS] Successfully obtained WASM binary from embedded data');
-			} catch (e) {
-				console.error('[SQL.JS] Failed to load embedded WASM:', e);
-				throw e;
+				// Get the embedded WASM binary
+				debug('[SQL.JS] Loading embedded WASM binary...');
+				let wasmBinary: ArrayBuffer | undefined;
+
+				try {
+					wasmBinary = await getWasmBinary();
+					debug('[SQL.JS] Successfully obtained WASM binary from embedded data');
+				} catch (e) {
+					console.error('[SQL.JS] Failed to load embedded WASM:', e);
+					throw e;
+				}
+
+				const initOptions: initSqlJs.SqlJsConfig = {
+					wasmBinary,
+				};
+
+				debug('[SQL.JS] Calling initSqlJs with wasmBinary option');
+				this.sqlJs = await initSqlJs(initOptions);
+				debug('[SQL.JS] Successfully initialized sql.js');
+			} catch (error) {
+				console.error('[SQL.JS] Failed to initialize sql.js:', error);
+				console.error('[SQL.JS] Error details:', {
+					message: String(error),
+					stack: error instanceof Error ? error.stack : undefined,
+				});
+				throw new Error('Failed to initialize database engine: ' + String(error));
 			}
+		})();
 
-			const initOptions: initSqlJs.SqlJsConfig = {
-				wasmBinary,
-			};
-
-			debug('[SQL.JS] Calling initSqlJs with wasmBinary option');
-			this.sqlJs = await initSqlJs(initOptions);
-			debug('[SQL.JS] Successfully initialized sql.js');
-		} catch (error) {
-			console.error('[SQL.JS] Failed to initialize sql.js:', error);
-			console.error('[SQL.JS] Error details:', {
-				message: String(error),
-				stack: error instanceof Error ? error.stack : undefined,
-			});
-			throw new Error('Failed to initialize database engine: ' + String(error));
-		}
+		return this.initPromise;
 	}
 
 	/**
