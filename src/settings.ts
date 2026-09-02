@@ -27,6 +27,105 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
+	getControlValue(key: string): unknown {
+		return this.plugin.settings[key as keyof BibleSearchSettings];
+	}
+
+	async setControlValue(key: string, value: unknown): Promise<void> {
+		if (key === 'verseFormat') {
+			const validation = validateTemplate(value as string);
+			if (!validation.valid) {
+				new Notice(`Invalid template: ${validation.error}`);
+				return;
+			}
+		}
+		// @ts-expect-error - value type depends on the specific key being set
+		this.plugin.settings[key as keyof BibleSearchSettings] = value;
+		await this.plugin.saveSettings();
+	}
+
+	getSettingDefinitions() {
+		return [
+			{
+				type: 'group',
+				name: 'Database configuration',
+				items: [
+					{
+						name: 'Kjv database URL',
+						desc: 'URL to kjv+.sqlite3 database file',
+						control: {
+							type: 'text',
+							key: 'kjvDbUrl',
+							placeholder: 'HTTPS://example.com/kjv+.sqlite3'
+						}
+					},
+					{
+						name: 'Rst database URL',
+						desc: 'URL to rst+.sqlite3 database file (russian)',
+						control: {
+							type: 'text',
+							key: 'rstDbUrl',
+							placeholder: 'HTTPS://example.com/rst+.sqlite3'
+						}
+					},
+					{
+						name: 'Download kjv database',
+						desc: 'Download and cache kjv database locally',
+						action: async () => {
+							try {
+								await this.plugin.downloadDatabase('KJV', this.plugin.settings.kjvDbUrl);
+							} catch (error) {
+								new Notice(`Failed to download KJV database: ${String(error)}`);
+							}
+						}
+					},
+					{
+						name: 'Download rst database',
+						desc: 'Download and cache rst database locally',
+						action: async () => {
+							try {
+								await this.plugin.downloadDatabase('RST', this.plugin.settings.rstDbUrl);
+							} catch (error) {
+								new Notice(`Failed to download RST database: ${String(error)}`);
+							}
+						}
+					}
+				]
+			},
+			{
+				type: 'group',
+				name: 'Search & display',
+				items: [
+					{
+						name: 'Verse format template',
+						desc: 'Template for pasted verses. Available: {short_name}, {long_name}, {chapter}, {verse}, {translation}, {text}, {raw_text}',
+						control: {
+							type: 'text',
+							key: 'verseFormat',
+							placeholder: '{short_name} {chapter}:{verse} ({translation}) — {text}'
+						}
+					},
+					{
+						name: 'Show parallel translation',
+						desc: 'Show parallel verse from other translation alongside results',
+						control: {
+							type: 'toggle',
+							key: 'showParallelByDefault'
+						}
+					},
+					{
+						name: 'Highlight matches',
+						desc: 'Highlight matching keywords in search results',
+						control: {
+							type: 'toggle',
+							key: 'highlightMatches'
+						}
+					}
+				]
+			}
+		];
+	}
+
 	display(): void {
 		const { containerEl } = this;
 
