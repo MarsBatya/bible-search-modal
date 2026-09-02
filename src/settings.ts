@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, Setting, Notice } from 'obsidian';
-import BibleSearchPlugin from './main';
+import type BibleSearchPlugin from './main';
 import { getDefaultVerseFormat, validateTemplate } from './utils/formatter';
 import { renderLogo } from './ui/logo';
 
@@ -9,18 +9,14 @@ export interface BibleSearchSettings {
 	verseFormat: string;
 	showParallelByDefault: boolean;
 	highlightMatches: boolean;
-	resultsPerPage: number;
-	stripMarkup: boolean;
 }
 
 export const DEFAULT_SETTINGS: BibleSearchSettings = {
-	kjvDbUrl: 'https://example.com/KJV+.sqlite3',
-	rstDbUrl: 'https://example.com/RST+.sqlite3',
+	kjvDbUrl: 'HTTPS://example.com/kjv+.sqlite3',
+	rstDbUrl: 'HTTPS://example.com/rst+.sqlite3',
 	verseFormat: getDefaultVerseFormat(),
 	showParallelByDefault: true, // Show both translations by default
 	highlightMatches: true,
-	resultsPerPage: 5,
-	stripMarkup: true,
 };
 
 export class BibleSearchSettingTab extends PluginSettingTab {
@@ -47,11 +43,11 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName('Database configuration').setHeading();
 
 		new Setting(containerEl)
-			.setName('KJV Database URL')
-			.setDesc('URL to KJV+.sqlite3 database file')
+			.setName('Kjv database URL')
+			.setDesc('URL to kjv+.sqlite3 database file')
 			.addText((text) =>
 				text
-					.setPlaceholder('https://example.com/KJV+.sqlite3')
+					.setPlaceholder('HTTPS://example.com/kjv+.sqlite3')
 					.setValue(this.plugin.settings.kjvDbUrl)
 					.onChange(async (value) => {
 						this.plugin.settings.kjvDbUrl = value;
@@ -60,11 +56,11 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('RST Database URL')
-			.setDesc('URL to RST+.sqlite3 database file (Russian)')
+			.setName('Rst database URL')
+			.setDesc('URL to rst+.sqlite3 database file (russian)')
 			.addText((text) =>
 				text
-					.setPlaceholder('https://example.com/RST+.sqlite3')
+					.setPlaceholder('HTTPS://example.com/rst+.sqlite3')
 					.setValue(this.plugin.settings.rstDbUrl)
 					.onChange(async (value) => {
 						this.plugin.settings.rstDbUrl = value;
@@ -73,8 +69,8 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('Download KJV Database')
-			.setDesc('Download and cache KJV database locally')
+			.setName('Download kjv database')
+			.setDesc('Download and cache kjv database locally')
 			.addButton((button) =>
 				button.setButtonText('Download').onClick(async () => {
 					try {
@@ -86,8 +82,8 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('Download RST Database')
-			.setDesc('Download and cache RST database locally')
+			.setName('Download rst database')
+			.setDesc('Download and cache rst database locally')
 			.addButton((button) =>
 				button.setButtonText('Download').onClick(async () => {
 					try {
@@ -146,33 +142,5 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		new Setting(containerEl)
-			.setName('Strip markup')
-			.setDesc('Remove Strong\'s numbers and formatting tags from verses')
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.stripMarkup)
-					.onChange(async (value) => {
-						this.plugin.settings.stripMarkup = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		// UI Preferences Section
-		new Setting(containerEl).setName('UI preferences').setHeading();
-
-		new Setting(containerEl)
-			.setName('Results per page')
-			.setDesc('Number of results to display per page')
-			.addSlider((slider) =>
-				slider
-					.setLimits(1, 20, 1)
-					.setValue(this.plugin.settings.resultsPerPage)
-					.setDynamicTooltip()
-					.onChange(async (value) => {
-						this.plugin.settings.resultsPerPage = value;
-						await this.plugin.saveSettings();
-					}),
-			);
 	}
 }

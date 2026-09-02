@@ -7,7 +7,6 @@ import { stripMarkup, highlightKeywords } from '../utils/formatter';
  */
 
 export interface ResultsViewOptions {
-	stripMarkup: boolean;
 	highlightMatches: boolean;
 	keywords?: string[];
 	onSelect: (verse: Verse) => void;
@@ -165,7 +164,7 @@ export function renderVerseResult(
 	renderVerseActions(refEl, verse, options);
 
 	// Verse text
-	let text = options.stripMarkup ? stripMarkup(verse.text) : (verse.text || '');
+	let text = stripMarkup(verse.text || '');
 
 	if (options.highlightMatches && options.keywords && options.keywords.length > 0) {
 		text = highlightKeywords(text, options.keywords);
@@ -213,7 +212,7 @@ export function renderVerseResult(
 		renderVerseActions(parallelRefEl, parallelVerse, options);
 
 		// Parallel verse text
-		let parallelText = options.stripMarkup ? stripMarkup(parallelVerse.text) : (parallelVerse.text || '');
+		let parallelText = stripMarkup(parallelVerse.text || '');
 
 		const parallelTextEl = parallelEl.createDiv({ cls: 'verse-text' });
 		renderVerseText(parallelTextEl, parallelText);

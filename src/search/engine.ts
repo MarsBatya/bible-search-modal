@@ -51,8 +51,7 @@ export async function search(
 	query: string,
 	kjvDb: DatabaseInstance | undefined,
 	rstDb: DatabaseInstance | undefined,
-	showParallel: boolean = false,
-	stripMarkup: boolean = true
+	showParallel: boolean = false
 ): Promise<SearchResult> {
 	if (!query || !query.trim()) {
 		throw new Error('Search query cannot be empty');

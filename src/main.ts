@@ -22,7 +22,7 @@ export default class BibleSearchPlugin extends Plugin {
 	// in-memory only, not saved to disk, and reset on reload/restart.
 	private recentlyInserted = new RecentVerseTracker(200);
 
-	async onload() {
+	async onload(): Promise<void> {
 		// Load settings
 		await this.loadSettings();
 
@@ -67,7 +67,7 @@ export default class BibleSearchPlugin extends Plugin {
 		void this.initializeDatabases();
 	}
 
-	async loadSettings() {
+	async loadSettings(): Promise<void> {
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
@@ -75,7 +75,7 @@ export default class BibleSearchPlugin extends Plugin {
 		);
 	}
 
-	async saveSettings() {
+	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
 	}
 
@@ -146,7 +146,7 @@ export default class BibleSearchPlugin extends Plugin {
 			return;
 		}
 
-		const formatted = formatVerse(verse, this.settings.verseFormat, this.settings.stripMarkup);
+		const formatted = formatVerse(verse, this.settings.verseFormat);
 		editor.replaceSelection(formatted);
 		this.markRecentlyInserted(verseKey(verse));
 
@@ -178,7 +178,7 @@ export default class BibleSearchPlugin extends Plugin {
 		if (!verse) {
 			return null;
 		}
-		return formatVerse(verse, verseFormat ?? this.settings.verseFormat, stripMarkup ?? this.settings.stripMarkup);
+		return formatVerse(verse, verseFormat ?? this.settings.verseFormat);
 	}
 
 	/**

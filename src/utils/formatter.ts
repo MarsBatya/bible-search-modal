@@ -72,9 +72,9 @@ export function validateTemplate(template: string): { valid: boolean; error?: st
 /**
  * Format verse using template
  */
-export function formatVerse(verse: Verse, template: string, stripMarkupFlag: boolean = true): string {
+export function formatVerse(verse: Verse, template: string): string {
 	const rawText = verse.text || '';
-	let text = stripMarkupFlag ? stripMarkup(rawText) : rawText;
+	let text = stripMarkup(rawText);
 
 	return template
 		.replace(/{short_name}/g, verse.book_name_short)

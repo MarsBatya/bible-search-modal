@@ -1,5 +1,5 @@
 import { App, Modal, Notice, Editor, EditorPosition } from 'obsidian';
-import BibleSearchPlugin from '../main';
+import type BibleSearchPlugin from '../main';
 import { Verse } from '../types';
 import { search } from '../search/engine';
 import { formatVerse } from '../utils/formatter';
@@ -77,7 +77,7 @@ export class BibleSearchModal extends Modal {
 		this.initialQuery = query;
 	}
 
-	onOpen() {
+	onOpen(): void {
 		// Capture the target editor and its selection/cursor now, before the
 		// modal takes over focus - see the comment on targetEditor above.
 		const activeEditor = this.app.workspace.activeEditor?.editor ?? null;
@@ -200,8 +200,7 @@ export class BibleSearchModal extends Modal {
 				query,
 				kjvDb,
 				rstDb,
-				this.plugin.settings.showParallelByDefault,
-				this.plugin.settings.stripMarkup
+				this.plugin.settings.showParallelByDefault
 			);
 
 			// Check if search was aborted before showing results
@@ -397,8 +396,7 @@ export class BibleSearchModal extends Modal {
 			// Format verse using template
 			const formattedVerse = formatVerse(
 				verse,
-				this.plugin.settings.verseFormat,
-				this.plugin.settings.stripMarkup
+				this.plugin.settings.verseFormat
 			);
 
 			const inserted = this.insertTextAtEditor(formattedVerse);
@@ -421,7 +419,7 @@ export class BibleSearchModal extends Modal {
 	 * copying each one out to paste elsewhere.
 	 */
 	private async copyVerse(verse: Verse) {
-		const formatted = formatVerse(verse, this.plugin.settings.verseFormat, this.plugin.settings.stripMarkup);
+		const formatted = formatVerse(verse, this.plugin.settings.verseFormat);
 		const copied = await this.writeToClipboard(formatted);
 		if (copied) {
 			new Notice(`Copied: ${verse.book_name_short} ${verse.chapter}:${verse.verse}`);
@@ -441,7 +439,7 @@ export class BibleSearchModal extends Modal {
 
 		const formatted = verses
 			.map((verse) =>
-				formatVerse(verse, this.plugin.settings.verseFormat, this.plugin.settings.stripMarkup)
+				formatVerse(verse, this.plugin.settings.verseFormat)
 			)
 			.join('\n');
 
@@ -512,7 +510,6 @@ export class BibleSearchModal extends Modal {
 			this.resultsContainer,
 			this.currentResults,
 			{
-				stripMarkup: this.plugin.settings.stripMarkup,
 				highlightMatches: this.plugin.settings.highlightMatches,
 				keywords: this.currentKeywords,
 				onSelect: (verse) => this.insertVerse(verse),
@@ -612,7 +609,7 @@ export class BibleSearchModal extends Modal {
 		try {
 			const formatted = verses
 				.map((verse) =>
-					formatVerse(verse, this.plugin.settings.verseFormat, this.plugin.settings.stripMarkup)
+					formatVerse(verse, this.plugin.settings.verseFormat)
 				)
 				.join('\n');
 
@@ -629,7 +626,7 @@ export class BibleSearchModal extends Modal {
 		}
 	}
 
-	onClose() {
+	onClose(): void {
 		// Remember whatever is in the search box so the next time the modal
 		// opens it's pre-filled (empty if the user cleared it before closing)
 		this.plugin.setLastSearchQuery(this.searchInput.value);
