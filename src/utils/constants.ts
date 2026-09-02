@@ -77,10 +77,9 @@ export const BIBLE_BOOKS = [
 
 /**
  * Cyrillic pattern for language detection
- * IMPORTANT: Use 'g' flag to match ALL Cyrillic characters, not just the first one
  * Pattern includes both lowercase and uppercase Cyrillic letters
  */
-export const CYRILLIC_PATTERN = /[а-яёА-ЯЁ]/g;
+export const CYRILLIC_PATTERN = /[а-яёА-ЯЁ]/;
 
 /**
  * Bible reference pattern
