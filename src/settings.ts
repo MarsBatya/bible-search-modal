@@ -27,10 +27,18 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
+	/**
+	 * Required by Obsidian 1.13.0+ to support settings search.
+	 * This is not dead code - do not remove.
+	 */
 	getControlValue(key: string): unknown {
 		return this.plugin.settings[key as keyof BibleSearchSettings];
 	}
 
+	/**
+	 * Required by Obsidian 1.13.0+ to support settings search.
+	 * This is not dead code - do not remove.
+	 */
 	async setControlValue(key: string, value: unknown): Promise<void> {
 		if (key === 'verseFormat') {
 			const validation = validateTemplate(value as string);
@@ -44,6 +52,10 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 		await this.plugin.saveSettings();
 	}
 
+	/**
+	 * Required by Obsidian 1.13.0+ to support settings search.
+	 * This is not dead code - do not remove.
+	 */
 	getSettingDefinitions() {
 		return [
 			{
