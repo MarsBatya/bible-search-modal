@@ -61,6 +61,7 @@ export class DatabaseEngine {
 				this.sqlJs = await initSqlJs(initOptions);
 				debug('[SQL.JS] Successfully initialized sql.js');
 			} catch (error) {
+				this.initPromise = null;
 				console.error('[SQL.JS] Failed to initialize sql.js:', error);
 				console.error('[SQL.JS] Error details:', {
 					message: String(error),
@@ -89,6 +90,12 @@ export class DatabaseEngine {
 	 * Returns a promise that can be tracked for loading status
 	 */
 	loadDb(translation: 'KJV' | 'RST'): Promise<DatabaseInstance | null> {
+		// Return cached instance if already loaded
+		const cached = this.databases.get(translation);
+		if (cached?.isLoaded) {
+			return Promise.resolve(cached);
+		}
+
 		// Return cached promise if already loading
 		const existing = this.loadingPromises.get(translation);
 		if (existing) {
@@ -236,25 +243,19 @@ export class DatabaseEngine {
 			return cached;
 		}
 
-		// Get loading promise
-		const loadPromise = this.loadingPromises.get(translation);
-		if (loadPromise) {
-			// Wait for the loading promise with timeout
-			let timer: number;
-			try {
-				return await Promise.race([
-					loadPromise,
-					new Promise<null>((_, reject) => {
-						timer = window.setTimeout(() => reject(new Error(`Database load timeout: ${translation}`)), timeoutMs);
-					}),
-				]);
-			} finally {
-				window.clearTimeout(timer!);
-			}
+		// Get existing loading promise or trigger loading on demand
+		const loadPromise = this.loadDb(translation);
+		let timer: number;
+		try {
+			return await Promise.race([
+				loadPromise,
+				new Promise<null>((_, reject) => {
+					timer = window.setTimeout(() => reject(new Error(`Database load timeout: ${translation}`)), timeoutMs);
+				}),
+			]);
+		} finally {
+			window.clearTimeout(timer!);
 		}
-
-		// Not cached and not loading, return null
-		return null;
 	}
 }
 

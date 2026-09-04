@@ -55,7 +55,7 @@ export default class BibleSearchPlugin extends Plugin {
 			id: 'bible-random-verse',
 			name: 'Insert random verse',
 			callback: () => {
-				this.insertRandomVerse();
+				void this.insertRandomVerse();
 			},
 			icon: 'shuffle',
 		});
@@ -63,8 +63,14 @@ export default class BibleSearchPlugin extends Plugin {
 		// Add settings tab
 		this.addSettingTab(new BibleSearchSettingTab(this.app, this));
 
-		// Initialize databases on first load (async, don't block onload)
-		void this.initializeDatabases();
+		// Defers background database warming until after Obsidian has finished
+		// its startup and layout rendering, so it never blocks or contributes
+		// to plugin startup time.
+		this.app.workspace.onLayoutReady(() => {
+			window.setTimeout(() => {
+				void this.preloadDatabases();
+			}, 3000);
+		});
 	}
 
 	async loadSettings(): Promise<void> {
@@ -80,24 +86,16 @@ export default class BibleSearchPlugin extends Plugin {
 	}
 
 	/**
-	 * Initialize databases on plugin load
+	 * Preload databases in the background after workspace layout is ready
 	 */
-	private async initializeDatabases() {
+	private async preloadDatabases(): Promise<void> {
 		try {
-			await this.dbEngine.initSqlJs();
-
-			// Try to load cached databases
-			const kjvLoaded = await this.dbEngine.loadDb('KJV');
-			const rstLoaded = await this.dbEngine.loadDb('RST');
-
-			if (!kjvLoaded && !rstLoaded) {
-				new Notice(
-					'Bible search: Configure database urls in settings and download databases'
-				);
-			}
+			await Promise.all([
+				this.dbEngine.loadDb('KJV'),
+				this.dbEngine.loadDb('RST'),
+			]);
 		} catch (error) {
-			console.error('Failed to initialize databases:', error);
-			new Notice('Bible search: Failed to initialize databases');
+			console.debug('Background database preload failed:', error);
 		}
 	}
 
@@ -122,7 +120,7 @@ export default class BibleSearchPlugin extends Plugin {
 	 * flip between KJV and RST when both are available) and insert it
 	 * directly at the cursor, matching the format template - no modal.
 	 */
-	private insertRandomVerse() {
+	private async insertRandomVerse() {
 		const editor = this.app.workspace.activeEditor?.editor;
 		if (!editor) {
 			new Notice('No active editor - open a note first');
@@ -130,9 +128,13 @@ export default class BibleSearchPlugin extends Plugin {
 		}
 
 		const dbEngine = this.getDbEngine();
-		const loadedDbs: DatabaseInstance[] = (['KJV', 'RST'] as const)
-			.map((translation) => dbEngine.getDb(translation))
-			.filter((db): db is DatabaseInstance => !!db?.isLoaded);
+		const [kjv, rst] = await Promise.all([
+			dbEngine.ensureDb('KJV', 5000).catch(() => null),
+			dbEngine.ensureDb('RST', 5000).catch(() => null),
+		]);
+		const loadedDbs: DatabaseInstance[] = [kjv, rst].filter(
+			(db): db is DatabaseInstance => !!db?.isLoaded
+		);
 
 		if (loadedDbs.length === 0) {
 			new Notice('No bible databases loaded. Please configure and download databases in settings.');

@@ -111,6 +111,11 @@ export class BibleSearchModal extends Modal {
 		// Focus input
 		this.searchInput.focus();
 
+		// Warm up databases if not already loaded so search is instant when user finishes typing
+		const dbEngine = this.plugin.getDbEngine();
+		void dbEngine.ensureDb('KJV');
+		void dbEngine.ensureDb('RST');
+
 		// Pre-fill with an explicit initial query (e.g. "search selected text"),
 		// falling back to the last query from this session - handy for inserting
 		// another verse from the same search, or the parallel verse in the
@@ -175,10 +180,12 @@ export class BibleSearchModal extends Modal {
 			// Check if search was aborted while waiting for DB
 			if (abortSignal.aborted) return;
 
-			// Ensure at least one database is available (wait if still loading)
+			// Ensure at least one database is available (wait if still loading, load concurrently)
 			// 5 second timeout for each database (user can wait, but not forever)
-			const kjvDbResult = await dbEngine.ensureDb('KJV', 5000).catch(() => null);
-			const rstDbResult = await dbEngine.ensureDb('RST', 5000).catch(() => null);
+			const [kjvDbResult, rstDbResult] = await Promise.all([
+				dbEngine.ensureDb('KJV', 5000).catch(() => null),
+				dbEngine.ensureDb('RST', 5000).catch(() => null),
+			]);
 
 			// Check if search was aborted while waiting for DB
 			if (abortSignal.aborted) return;
