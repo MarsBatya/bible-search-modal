@@ -10,7 +10,9 @@
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"lint": "eslint .",
 		"test": "vitest",
-		"test:run": "vitest run"
+		"test:run": "vitest run",
+		"cli": "node cli/bible-cli",
+		"build:cli": "esbuild cli/index.ts --bundle --platform=node --format=esm --packages=external --outfile=cli/bible-cli && chmod +x cli/bible-cli"
 	},
 	"keywords": [
 		"bible",

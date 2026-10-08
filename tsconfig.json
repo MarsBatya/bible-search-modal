@@ -15,5 +15,5 @@
 		"allowSyntheticDefaultImports": true,
 		"lib": ["ES2021", "DOM"]
 	},
-	"include": ["src/**/*.ts", "vitest.config.ts"]
+	"include": ["src/**/*.ts", "cli/**/*.ts", "vitest.config.ts"]
 }

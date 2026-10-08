@@ -1,0 +1,1308 @@
+#!/usr/bin/env node
+
+// cli/index.ts
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import readline from "readline";
+import initSqlJs from "sql.js";
+
+// src/utils/versification.ts
+var WESTERN_TO_SYNODAL_VERSE_OVERRIDES = {
+  13: {
+    1: { chapter: 12, verse: 2 },
+    2: { chapter: 12, verse: 3 },
+    3: { chapter: 12, verse: 4 },
+    4: { chapter: 12, verse: 5 },
+    5: { chapter: 12, verse: 6 },
+    6: { chapter: 12, verse: 6 }
+  },
+  90: {
+    1: { chapter: 89, verse: 2 },
+    2: { chapter: 89, verse: 3 },
+    3: { chapter: 89, verse: 4 },
+    4: { chapter: 89, verse: 5 },
+    5: { chapter: 89, verse: 6 },
+    6: { chapter: 89, verse: 6 }
+  }
+};
+var SYNODAL_TO_WESTERN_VERSE_OVERRIDES = {
+  12: {
+    1: null,
+    2: { chapter: 13, verse: 1 },
+    3: { chapter: 13, verse: 2 },
+    4: { chapter: 13, verse: 3 },
+    5: { chapter: 13, verse: 4 },
+    6: { chapter: 13, verse: 5 }
+  },
+  89: {
+    1: null,
+    2: { chapter: 90, verse: 1 },
+    3: { chapter: 90, verse: 2 },
+    4: { chapter: 90, verse: 3 },
+    5: { chapter: 90, verse: 4 },
+    6: { chapter: 90, verse: 5 }
+  }
+};
+var WESTERN_JOB = [22, 13, 26, 21, 27, 30, 21, 22, 35, 22, 20, 25, 28, 22, 35, 22, 16, 21, 29, 29, 34, 30, 17, 25, 6, 14, 23, 28, 25, 31, 40, 22, 33, 37, 16, 33, 24, 41, 30, 24, 34, 17];
+var SYNODAL_JOB = [22, 13, 26, 21, 27, 30, 21, 22, 35, 22, 20, 25, 28, 22, 35, 22, 16, 21, 29, 29, 34, 30, 17, 25, 6, 14, 23, 28, 25, 31, 40, 22, 33, 37, 16, 33, 24, 41, 35, 27, 26, 17];
+var WESTERN_PSALMS = [6, 12, 8, 8, 12, 10, 17, 9, 20, 18, 7, 8, 6, 7, 5, 11, 15, 50, 14, 9, 13, 31, 6, 10, 22, 12, 14, 9, 11, 12, 24, 11, 22, 22, 28, 12, 40, 22, 13, 17, 13, 11, 5, 26, 17, 11, 9, 14, 20, 23, 19, 9, 6, 7, 23, 13, 11, 11, 17, 12, 8, 12, 11, 10, 13, 20, 7, 35, 36, 5, 24, 20, 28, 23, 10, 12, 20, 72, 13, 19, 16, 8, 18, 12, 13, 17, 7, 18, 52, 17, 16, 15, 5, 23, 11, 13, 12, 9, 9, 5, 8, 28, 22, 35, 45, 48, 43, 13, 31, 7, 10, 10, 9, 8, 18, 19, 2, 29, 176, 7, 8, 9, 4, 8, 5, 6, 5, 6, 8, 8, 3, 18, 3, 3, 21, 26, 9, 8, 24, 13, 10, 7, 12, 15, 21, 10, 20, 14, 9, 6];
+var SYNODAL_PSALMS = [6, 12, 9, 9, 13, 11, 18, 10, 39, 7, 9, 6, 7, 5, 11, 15, 51, 15, 10, 14, 32, 6, 10, 22, 12, 14, 9, 11, 13, 25, 11, 22, 23, 28, 13, 40, 23, 14, 18, 14, 12, 5, 27, 18, 12, 10, 15, 21, 23, 21, 11, 7, 9, 24, 14, 12, 12, 18, 14, 9, 13, 12, 11, 14, 20, 8, 36, 37, 6, 24, 20, 28, 23, 11, 13, 21, 72, 13, 20, 17, 8, 19, 13, 14, 17, 7, 19, 53, 17, 16, 16, 5, 23, 11, 13, 12, 9, 9, 5, 8, 29, 22, 35, 45, 48, 43, 14, 31, 7, 10, 10, 9, 26, 9, 10, 2, 29, 176, 7, 8, 9, 4, 8, 5, 6, 5, 6, 8, 8, 3, 18, 3, 3, 21, 26, 9, 8, 24, 14, 10, 7, 12, 15, 21, 10, 11, 9, 14, 9, 6];
+var WESTERN_SONG_OF_SOLOMON = [17, 17, 11, 16, 16, 13, 13, 14];
+var SYNODAL_SONG_OF_SOLOMON = [16, 17, 11, 16, 16, 12, 14, 14];
+var WESTERN_VERSE_COUNTS = {
+  220: WESTERN_JOB,
+  230: WESTERN_PSALMS,
+  260: WESTERN_SONG_OF_SOLOMON
+};
+var SYNODAL_VERSE_COUNTS = {
+  220: SYNODAL_JOB,
+  230: SYNODAL_PSALMS,
+  260: SYNODAL_SONG_OF_SOLOMON
+};
+function resolveChapterGroup(bookNumber, chapter, fromRussianNumbering) {
+  if (bookNumber === 230) {
+    return resolvePsalmGroup(chapter, fromRussianNumbering);
+  }
+  if (bookNumber === 220) {
+    return resolveJobGroup(chapter);
+  }
+  if (bookNumber === 260) {
+    return resolveSongOfSolomonGroup(chapter);
+  }
+  return { western: [chapter], synodal: [chapter] };
+}
+function resolvePsalmGroup(chapter, fromRussianNumbering) {
+  if (!fromRussianNumbering) {
+    if (chapter <= 8) return { western: [chapter], synodal: [chapter] };
+    if (chapter <= 10) return { western: [9, 10], synodal: [9] };
+    if (chapter <= 113) return { western: [chapter], synodal: [chapter - 1] };
+    if (chapter <= 115) return { western: [114, 115], synodal: [113] };
+    if (chapter === 116) return { western: [116], synodal: [114, 115] };
+    if (chapter <= 146) return { western: [chapter], synodal: [chapter - 1] };
+    if (chapter === 147) return { western: [147], synodal: [146, 147] };
+    return { western: [chapter], synodal: [chapter] };
+  }
+  if (chapter <= 8) return { western: [chapter], synodal: [chapter] };
+  if (chapter === 9) return { western: [9, 10], synodal: [9] };
+  if (chapter <= 112) return { western: [chapter + 1], synodal: [chapter] };
+  if (chapter === 113) return { western: [114, 115], synodal: [113] };
+  if (chapter <= 115) return { western: [116], synodal: [114, 115] };
+  if (chapter <= 145) return { western: [chapter + 1], synodal: [chapter] };
+  if (chapter <= 147) return { western: [147], synodal: [146, 147] };
+  return { western: [chapter], synodal: [chapter] };
+}
+function resolveJobGroup(chapter) {
+  if (chapter >= 39 && chapter <= 41) {
+    return { western: [39, 40, 41], synodal: [39, 40, 41] };
+  }
+  return { western: [chapter], synodal: [chapter] };
+}
+function resolveSongOfSolomonGroup(chapter) {
+  if (chapter === 6 || chapter === 7) {
+    return { western: [6, 7], synodal: [6, 7] };
+  }
+  return { western: [chapter], synodal: [chapter] };
+}
+function positionWithinGroup(counts, chapters, chapter, verse) {
+  let position = verse;
+  for (const c of chapters) {
+    if (c === chapter) break;
+    position += counts[c - 1] ?? 0;
+  }
+  return position;
+}
+function chapterVerseAtPosition(counts, chapters, position) {
+  let remaining = position;
+  for (const c of chapters) {
+    const chapterCount = counts[c - 1] ?? 0;
+    if (remaining <= chapterCount) {
+      return remaining >= 1 ? { chapter: c, verse: remaining } : null;
+    }
+    remaining -= chapterCount;
+  }
+  return null;
+}
+function groupOffset(westernCounts, synodalCounts, group) {
+  const westernSum = group.western.reduce((sum, c) => sum + (westernCounts[c - 1] ?? 0), 0);
+  const synodalSum = group.synodal.reduce((sum, c) => sum + (synodalCounts[c - 1] ?? 0), 0);
+  return synodalSum - westernSum;
+}
+function convertVersification(bookNumber, chapter, verse, fromRussianNumbering, toRussianNumbering) {
+  if (fromRussianNumbering === toRussianNumbering) {
+    return { chapter, verse };
+  }
+  if (bookNumber === 230) {
+    if (!fromRussianNumbering) {
+      const override = WESTERN_TO_SYNODAL_VERSE_OVERRIDES[chapter]?.[verse];
+      if (override) return override;
+    } else {
+      const override = SYNODAL_TO_WESTERN_VERSE_OVERRIDES[chapter]?.[verse];
+      if (override !== void 0) return override;
+    }
+  }
+  const westernCounts = WESTERN_VERSE_COUNTS[bookNumber];
+  const synodalCounts = SYNODAL_VERSE_COUNTS[bookNumber];
+  if (!westernCounts || !synodalCounts) {
+    return { chapter, verse };
+  }
+  const group = resolveChapterGroup(bookNumber, chapter, fromRussianNumbering);
+  const offset = groupOffset(westernCounts, synodalCounts, group);
+  if (!fromRussianNumbering) {
+    const position2 = positionWithinGroup(westernCounts, group.western, chapter, verse) + offset;
+    return chapterVerseAtPosition(synodalCounts, group.synodal, position2);
+  }
+  const position = positionWithinGroup(synodalCounts, group.synodal, chapter, verse) - offset;
+  return chapterVerseAtPosition(westernCounts, group.western, position);
+}
+
+// src/utils/constants.ts
+var BIBLE_BOOKS = [
+  { book_number: 10, short_name: "Gen", long_name: "Genesis", abbreviations: ["ge", "gen", "gn", "\u0431\u044B\u0442", "\u0431\u044B\u0442\u0438\u0435"] },
+  { book_number: 20, short_name: "Exo", long_name: "Exodus", abbreviations: ["ex", "exo", "exodus", "\u0438\u0441\u0445", "\u0438\u0441\u0445\u043E\u0434"] },
+  { book_number: 30, short_name: "Lev", long_name: "Leviticus", abbreviations: ["lev", "leviticus", "\u043B\u0435\u0432", "\u043B\u0435\u0432\u0438\u0442"] },
+  { book_number: 40, short_name: "Num", long_name: "Numbers", abbreviations: ["num", "numbers", "nm", "\u0447\u0438\u0441", "\u0447\u0438\u0441\u043B\u0430", "\u0447\u0438\u0441\u043B"] },
+  { book_number: 50, short_name: "Deu", long_name: "Deuteronomy", abbreviations: ["deu", "deuteronomy", "dt", "\u0432\u0442\u0440", "\u0432\u0442\u043E\u0440", "\u0432\u0442\u043E\u0440\u043E\u0437\u0430\u043A\u043E\u043D\u0438\u0435"] },
+  { book_number: 60, short_name: "Josh", long_name: "Joshua", abbreviations: ["jos", "josh", "joshua", "\u043D\u0430\u0432", "\u043D\u0430\u0432\u0438\u043D", "\u0438\u0438\u0441", "\u0438\u0438\u0441\u0443\u0441 \u043D\u0430\u0432\u0438\u043D"] },
+  { book_number: 70, short_name: "Judg", long_name: "Judges", abbreviations: ["jdg", "judg", "judges", "jg", "\u0441\u0443\u0434", "\u0441\u0443\u0434\u0435\u0439", "\u0441\u0443\u0434\u044C\u0438"] },
+  { book_number: 80, short_name: "Ruth", long_name: "Ruth", abbreviations: ["rut", "ruth", "ru", "\u0440\u0443\u0444", "\u0440\u0443\u0444\u044C"] },
+  { book_number: 90, short_name: "1Sam", long_name: "1 Samuel", abbreviations: ["1sa", "1sam", "1samuel", "1 samuel", "1 \u0446\u0430\u0440", "1\u0446\u0430\u0440", "1 \u0446\u0430\u0440\u0441\u0442\u0432", "1\u0446\u0430\u0440\u0441\u0442\u0432", "1-\u044F \u0446\u0430\u0440\u0441\u0442\u0432", "1-\u044F \u0446\u0430\u0440"] },
+  { book_number: 100, short_name: "2Sam", long_name: "2 Samuel", abbreviations: ["2sa", "2sam", "2samuel", "2 samuel", "2 \u0446\u0430\u0440", "2\u0446\u0430\u0440", "2 \u0446\u0430\u0440\u0441\u0442\u0432", "2\u0446\u0430\u0440\u0441\u0442\u0432", "2-\u044F \u0446\u0430\u0440\u0441\u0442\u0432", "2-\u044F \u0446\u0430\u0440"] },
+  { book_number: 110, short_name: "1Kin", long_name: "1 Kings", abbreviations: ["1ki", "1kin", "1kings", "1 kings", "1kgs", "3 \u0446\u0430\u0440", "3\u0446\u0430\u0440", "3 \u0446\u0430\u0440\u0441\u0442\u0432", "3\u0446\u0430\u0440\u0441\u0442\u0432", "3-\u044F \u0446\u0430\u0440\u0441\u0442\u0432", "3-\u044F \u0446\u0430\u0440"] },
+  { book_number: 120, short_name: "2Kin", long_name: "2 Kings", abbreviations: ["2ki", "2kin", "2kings", "2 kings", "2kgs", "4 \u0446\u0430\u0440", "4\u0446\u0430\u0440", "4 \u0446\u0430\u0440\u0441\u0442\u0432", "4\u0446\u0430\u0440\u0441\u0442\u0432", "4-\u044F \u0446\u0430\u0440\u0441\u0442\u0432", "4-\u044F \u0446\u0430\u0440"] },
+  { book_number: 130, short_name: "1Chr", long_name: "1 Chronicles", abbreviations: ["1ch", "1chr", "1chronicles", "1 chronicles", "1 \u043F\u0430\u0440", "1\u043F\u0430\u0440", "1 \u043F\u0430\u0440\u0430\u043B\u0438\u043F\u043E\u043C\u0435\u043D\u043E\u043D", "1\u043F\u0430\u0440\u0430\u043B\u0438\u043F\u043E\u043C\u0435\u043D\u043E\u043D", "1-\u044F \u043F\u0430\u0440\u0430\u043B\u0438\u043F\u043E\u043C\u0435\u043D\u043E\u043D"] },
+  { book_number: 140, short_name: "2Chr", long_name: "2 Chronicles", abbreviations: ["2ch", "2chr", "2chronicles", "2 chronicles", "2 \u043F\u0430\u0440", "2\u043F\u0430\u0440", "2 \u043F\u0430\u0440\u0430\u043B\u0438\u043F\u043E\u043C\u0435\u043D\u043E\u043D", "2\u043F\u0430\u0440\u0430\u043B\u0438\u043F\u043E\u043C\u0435\u043D\u043E\u043D", "2-\u044F \u043F\u0430\u0440\u0430\u043B\u0438\u043F\u043E\u043C\u0435\u043D\u043E\u043D"] },
+  { book_number: 150, short_name: "Ezr", long_name: "Ezra", abbreviations: ["ezr", "ezra", "\u0435\u0437\u0440", "\u0435\u0437\u0434\u0440", "\u0435\u0437\u0434\u0440\u0430"] },
+  { book_number: 160, short_name: "Neh", long_name: "Nehemiah", abbreviations: ["neh", "nehemiah", "\u043D\u0435\u0435\u043C", "\u043D\u0435\u0435\u043C\u0438\u044F"] },
+  { book_number: 190, short_name: "Esth", long_name: "Esther", abbreviations: ["est", "esth", "esther", "\u0435\u0441\u0444", "\u0435\u0441\u0444\u0438\u0440\u044C"] },
+  { book_number: 220, short_name: "Job", long_name: "Job", abbreviations: ["job", "\u0438\u043E\u0432", "\u0438\u043E\u0432\u0430"] },
+  { book_number: 230, short_name: "Ps", long_name: "Psalms", abbreviations: ["ps", "psa", "psalm", "psalms", "\u043F\u0441", "\u043F\u0441\u0430\u043B", "\u043F\u0441\u0430\u043B\u043E\u043C", "\u043F\u0441\u0430\u043B\u0442\u044B\u0440\u044C", "\u043F\u0441\u0430\u043B\u0442\u0438\u0440\u044C"] },
+  { book_number: 240, short_name: "Prov", long_name: "Proverbs", abbreviations: ["pro", "prov", "proverbs", "\u043F\u0440", "\u043F\u0440\u0438\u0442", "\u043F\u0440\u0438\u0442\u0447", "\u043F\u0440\u0438\u0442\u0447\u0438", "\u043F\u0440\u0438\u0442\u0447\u0435\u0439"] },
+  { book_number: 250, short_name: "Eccl", long_name: "Ecclesiastes", abbreviations: ["ecc", "eccl", "ecclesiastes", "\u0435\u043A\u043A\u043B", "\u0435\u043A\u043B\u0435\u0437\u0438\u0430\u0441\u0442", "\u0435\u043A\u043A\u043B\u0435\u0437\u0438\u0430\u0441\u0442", "\u0435\u043A\u043A\u043B\u0435\u0441\u0438\u0430\u0441\u0442", "\u0435\u043A\u043B"] },
+  { book_number: 260, short_name: "Song", long_name: "Song of Solomon", abbreviations: ["song", "sos", "canticles", "\u043F\u0435\u0441\u043D", "\u043F\u0435\u0441\u043D\u0438", "\u043F\u0435\u0441\u043D\u044C", "\u043F\u0435\u0441\u043D\u044F", "\u043F\u0435\u0441\u043D\u044F \u043F\u0435\u0441\u043D\u0435\u0439", "\u043F\u0435\u0441\u043D\u044C \u043F\u0435\u0441\u043D\u0435\u0439"] },
+  { book_number: 290, short_name: "Isa", long_name: "Isaiah", abbreviations: ["isa", "isaiah", "\u0438\u0441", "\u0438\u0441.", "\u0438\u0441\u0430\u0439\u044F", "\u0438\u0441\u0430\u0438\u044F"] },
+  { book_number: 300, short_name: "Jer", long_name: "Jeremiah", abbreviations: ["jer", "jeremiah", "\u0438\u0435\u0440", "\u0438\u0435\u0440\u0435\u043C\u0438\u044F"] },
+  { book_number: 310, short_name: "Lam", long_name: "Lamentations", abbreviations: ["lam", "lamentations", "\u043F\u043B\u0430\u0447", "\u043F\u043B\u0430\u0447 \u0438\u0435\u0440\u0435\u043C\u0438\u0438"] },
+  { book_number: 330, short_name: "Ezek", long_name: "Ezekiel", abbreviations: ["eze", "ezek", "ezekiel", "\u0438\u0435\u0437", "\u0438\u0435\u0437\u0435\u043A\u0438\u0438\u043B\u044C"] },
+  { book_number: 340, short_name: "Dan", long_name: "Daniel", abbreviations: ["dan", "daniel", "dn", "\u0434\u0430\u043D", "\u0434\u0430\u043D\u0438\u0438\u043B"] },
+  { book_number: 350, short_name: "Hos", long_name: "Hosea", abbreviations: ["hos", "hosea", "ho", "\u043E\u0441", "\u043E\u0441\u0438\u044F"] },
+  { book_number: 360, short_name: "Joel", long_name: "Joel", abbreviations: ["joe", "joel", "jl", "\u0438\u043E\u0438\u043B\u044C", "\u0438\u043E\u0438\u043B"] },
+  { book_number: 370, short_name: "Am", long_name: "Amos", abbreviations: ["amo", "am", "amos", "\u0430\u043C", "\u0430\u043C\u043E\u0441"] },
+  { book_number: 380, short_name: "Oba", long_name: "Obadiah", abbreviations: ["oba", "obadiah", "ob", "\u0430\u0432\u0434", "\u0430\u0432\u0434\u0438\u0439"] },
+  { book_number: 390, short_name: "Jona", long_name: "Jonah", abbreviations: ["jon", "jona", "jonah", "jnh", "\u0438\u043E\u043D", "\u0438\u043E\u043D\u0430"] },
+  { book_number: 400, short_name: "Mic", long_name: "Micah", abbreviations: ["mic", "micah", "\u043C\u0438\u0445", "\u043C\u0438\u0445\u0435\u0439"] },
+  { book_number: 410, short_name: "Nah", long_name: "Nahum", abbreviations: ["nah", "nahum", "\u043D\u0430\u0443\u043C", "\u043D\u0430\u0445\u0443\u043C"] },
+  { book_number: 420, short_name: "Hab", long_name: "Habakkuk", abbreviations: ["hab", "habakkuk", "\u0430\u0432\u0432", "\u0430\u0432\u0432\u0430\u043A\u0443\u043C"] },
+  { book_number: 430, short_name: "Zeph", long_name: "Zephaniah", abbreviations: ["zep", "zeph", "zephaniah", "\u0441\u043E\u0444", "\u0441\u043E\u0444\u043E\u043D\u0438\u044F"] },
+  { book_number: 440, short_name: "Hag", long_name: "Haggai", abbreviations: ["hag", "haggai", "\u0430\u0433\u0433", "\u0430\u0433\u0433\u0435\u0439"] },
+  { book_number: 450, short_name: "Zech", long_name: "Zechariah", abbreviations: ["zac", "zech", "zechariah", "\u0437\u0430\u0445", "\u0437\u0430\u0445\u0430\u0440\u0438\u044F"] },
+  { book_number: 460, short_name: "Mal", long_name: "Malachi", abbreviations: ["mal", "malachi", "\u043C\u0430\u043B", "\u043C\u0430\u043B\u0430\u0445\u0438\u044F"] },
+  { book_number: 470, short_name: "Mat", long_name: "Matthew", abbreviations: ["mat", "matthew", "matt", "mt", "\u043C\u0444", "\u043C\u0430\u0442\u0444", "\u043C\u0430\u0442\u0444\u0435\u0439", "\u043C\u0430\u0442", "\u043E\u0442 \u043C\u0430\u0442\u0444\u0435\u044F"] },
+  { book_number: 480, short_name: "Mar", long_name: "Mark", abbreviations: ["mar", "mark", "mk", "\u043C\u043A", "\u043C\u0430\u0440\u043A", "\u043C\u0430\u0440", "\u043E\u0442 \u043C\u0430\u0440\u043A\u0430"] },
+  { book_number: 490, short_name: "Luk", long_name: "Luke", abbreviations: ["luk", "luke", "lk", "\u043B\u043A", "\u043B\u0443\u043A\u0430", "\u043B\u0443\u043A", "\u043E\u0442 \u043B\u0443\u043A\u0438"] },
+  { book_number: 500, short_name: "John", long_name: "John", abbreviations: ["joh", "john", "jn", "\u0438\u043D", "\u0438\u043E\u0430\u043D", "\u0438\u043E\u0430\u043D\u043D", "\u043E\u0442 \u0438\u043E\u0430\u043D\u043D\u0430"] },
+  { book_number: 510, short_name: "Acts", long_name: "Acts", abbreviations: ["act", "acts", "ac", "\u0434\u0435\u044F\u043D", "\u0434\u0435\u044F\u043D\u0438\u044F"] },
+  { book_number: 520, short_name: "Rom", long_name: "Romans", abbreviations: ["rom", "romans", "ro", "\u0440\u0438\u043C", "\u0440\u0438\u043C\u043B", "\u0440\u0438\u043C\u043B\u044F\u043D\u0430\u043C", "\u043A \u0440\u0438\u043C\u043B\u044F\u043D\u0430\u043C"] },
+  { book_number: 530, short_name: "1Cor", long_name: "1 Corinthians", abbreviations: ["1co", "1cor", "1corinthians", "1 corinthians", "1 \u043A\u043E\u0440", "1\u043A\u043E\u0440", "1\u043A\u043E\u0440\u0438\u043D\u0444\u044F\u043D\u0430\u043C", "1 \u043A\u043E\u0440\u0438\u043D\u0444\u044F\u043D\u0430\u043C", "1-\u0435 \u043A\u043E\u0440\u0438\u043D\u0444\u044F\u043D\u0430\u043C"] },
+  { book_number: 540, short_name: "2Cor", long_name: "2 Corinthians", abbreviations: ["2co", "2cor", "2corinthians", "2 corinthians", "2 \u043A\u043E\u0440", "2\u043A\u043E\u0440", "2\u043A\u043E\u0440\u0438\u043D\u0444\u044F\u043D\u0430\u043C", "2 \u043A\u043E\u0440\u0438\u043D\u0444\u044F\u043D\u0430\u043C", "2-\u0435 \u043A\u043E\u0440\u0438\u043D\u0444\u044F\u043D\u0430\u043C"] },
+  { book_number: 550, short_name: "Gal", long_name: "Galatians", abbreviations: ["gal", "galatians", "ga", "\u0433\u0430\u043B", "\u0433\u0430\u043B\u0430\u0442", "\u0433\u0430\u043B\u0430\u0442\u0430\u043C", "\u043A \u0433\u0430\u043B\u0430\u0442\u0430\u043C"] },
+  { book_number: 560, short_name: "Eph", long_name: "Ephesians", abbreviations: ["eph", "ephesians", "ep", "\u0435\u0444", "\u0435\u0444\u0435\u0441", "\u0435\u0444\u0435\u0441\u044F\u043D\u0430\u043C", "\u043A \u0435\u0444\u0435\u0441\u044F\u043D\u0430\u043C"] },
+  { book_number: 570, short_name: "Phil", long_name: "Philippians", abbreviations: ["phl", "phil", "philippians", "\u0444\u043B\u043F", "\u0444\u0438\u043B\u0438\u043F\u043F", "\u0444\u0438\u043B\u0438\u043F\u043F\u0438\u0439\u0446\u0430\u043C", "\u043A \u0444\u0438\u043B\u0438\u043F\u043F\u0438\u0439\u0446\u0430\u043C"] },
+  { book_number: 580, short_name: "Col", long_name: "Colossians", abbreviations: ["col", "colossians", "co", "\u043A\u043E\u043B", "\u043A\u043E\u043B\u043E\u0441\u0441", "\u043A\u043E\u043B\u043E\u0441\u0441\u044F\u043D\u0430\u043C", "\u043A \u043A\u043E\u043B\u043E\u0441\u0441\u044F\u043D\u0430\u043C"] },
+  { book_number: 590, short_name: "1Ths", long_name: "1 Thessalonians", abbreviations: ["1th", "1ths", "1thessalonians", "1 thessalonians", "1 \u0444\u0435\u0441", "1\u0444\u0435\u0441", "1\u0444\u0435\u0441\u0441\u0430\u043B\u043E\u043D\u0438\u043A\u0438\u0439\u0446\u0430\u043C", "1 \u0444\u0435\u0441\u0441\u0430\u043B\u043E\u043D\u0438\u043A\u0438\u0439\u0446\u0430\u043C", "1-\u0435 \u0444\u0435\u0441\u0441\u0430\u043B\u043E\u043D\u0438\u043A\u0438\u0439\u0446\u0430\u043C"] },
+  { book_number: 600, short_name: "2Ths", long_name: "2 Thessalonians", abbreviations: ["2th", "2ths", "2thessalonians", "2 thessalonians", "2 \u0444\u0435\u0441", "2\u0444\u0435\u0441", "2\u0444\u0435\u0441\u0441\u0430\u043B\u043E\u043D\u0438\u043A\u0438\u0439\u0446\u0430\u043C", "2 \u0444\u0435\u0441\u0441\u0430\u043B\u043E\u043D\u0438\u043A\u0438\u0439\u0446\u0430\u043C", "2-\u0435 \u0444\u0435\u0441\u0441\u0430\u043B\u043E\u043D\u0438\u043A\u0438\u0439\u0446\u0430\u043C"] },
+  { book_number: 610, short_name: "1Tim", long_name: "1 Timothy", abbreviations: ["1ti", "1tim", "1timothy", "1 timothy", "1 \u0442\u0438\u043C", "1\u0442\u0438\u043C", "1\u0442\u0438\u043C\u043E\u0444\u0435\u044E", "1 \u0442\u0438\u043C\u043E\u0444\u0435\u044E", "1-\u0435 \u0442\u0438\u043C\u043E\u0444\u0435\u044E"] },
+  { book_number: 620, short_name: "2Tim", long_name: "2 Timothy", abbreviations: ["2ti", "2tim", "2timothy", "2 timothy", "2 \u0442\u0438\u043C", "2\u0442\u0438\u043C", "2\u0442\u0438\u043C\u043E\u0444\u0435\u044E", "2 \u0442\u0438\u043C\u043E\u0444\u0435\u044E", "2-\u0435 \u0442\u0438\u043C\u043E\u0444\u0435\u044E"] },
+  { book_number: 630, short_name: "Tit", long_name: "Titus", abbreviations: ["tit", "titus", "\u0442\u0438\u0442", "\u0442\u0438\u0442\u0443", "\u043A \u0442\u0438\u0442\u0443"] },
+  { book_number: 640, short_name: "Phlm", long_name: "Philemon", abbreviations: ["phlm", "philemon", "\u0444\u043B\u043C", "\u0444\u0438\u043B\u0438\u043C\u043E\u043D", "\u0444\u0438\u043B\u0438\u043C\u043E\u043D\u0443", "\u043A \u0444\u0438\u043B\u0438\u043C\u043E\u043D\u0443"] },
+  { book_number: 650, short_name: "Heb", long_name: "Hebrews", abbreviations: ["heb", "hebrews", "\u0435\u0432\u0440", "\u0435\u0432\u0440\u0435\u044F\u043C", "\u043A \u0435\u0432\u0440\u0435\u044F\u043C"] },
+  { book_number: 660, short_name: "Jam", long_name: "James", abbreviations: ["jas", "jam", "james", "jm", "\u0438\u0430\u043A", "\u0438\u0430\u043A\u043E\u0432", "\u0438\u0430\u043A\u043E\u0432\u0430"] },
+  { book_number: 670, short_name: "1Pet", long_name: "1 Peter", abbreviations: ["1pe", "1pet", "1peter", "1 peter", "1 \u043F\u0435\u0442", "1\u043F\u0435\u0442", "1\u043F\u0435\u0442\u0440\u0430", "1 \u043F\u0435\u0442\u0440\u0430", "1-\u0435 \u043F\u0435\u0442\u0440\u0430"] },
+  { book_number: 680, short_name: "2Pet", long_name: "2 Peter", abbreviations: ["2pe", "2pet", "2peter", "2 peter", "2 \u043F\u0435\u0442", "2\u043F\u0435\u0442", "2\u043F\u0435\u0442\u0440\u0430", "2 \u043F\u0435\u0442\u0440\u0430", "2-\u0435 \u043F\u0435\u0442\u0440\u0430"] },
+  { book_number: 690, short_name: "1Jn", long_name: "1 John", abbreviations: ["1jo", "1jn", "1john", "1 john", "1 \u0438\u043D", "1\u0438\u043D", "1\u0438\u043E\u0430\u043D", "1\u0438\u043E\u0430\u043D\u043D\u0430", "1 \u0438\u043E\u0430\u043D\u043D\u0430", "1-\u0435 \u0438\u043E\u0430\u043D\u043D\u0430"] },
+  { book_number: 700, short_name: "2Jn", long_name: "2 John", abbreviations: ["2jo", "2jn", "2john", "2 john", "2 \u0438\u043D", "2\u0438\u043D", "2\u0438\u043E\u0430\u043D", "2\u0438\u043E\u0430\u043D\u043D\u0430", "2 \u0438\u043E\u0430\u043D\u043D\u0430", "2-\u0435 \u0438\u043E\u0430\u043D\u043D\u0430"] },
+  { book_number: 710, short_name: "3Jn", long_name: "3 John", abbreviations: ["3jo", "3jn", "3john", "3 john", "3 \u0438\u043D", "3\u0438\u043D", "3\u0438\u043E\u0430\u043D", "3\u0438\u043E\u0430\u043D\u043D\u0430", "3 \u0438\u043E\u0430\u043D\u043D\u0430", "3-\u0435 \u0438\u043E\u0430\u043D\u043D\u0430"] },
+  { book_number: 720, short_name: "Jud", long_name: "Jude", abbreviations: ["jud", "jude", "\u0438\u0443\u0434", "\u0438\u0443\u0434\u0430", "\u0438\u0443\u0434\u044B"] },
+  { book_number: 730, short_name: "Rev", long_name: "Revelation", abbreviations: ["rev", "revelation", "\u043E\u0442\u043A\u0440", "\u043E\u0442\u043A\u0440\u043E\u0432\u0435\u043D\u0438\u0435"] }
+];
+var CYRILLIC_PATTERN = /[а-яёА-ЯЁ]/;
+var REFERENCE_PATTERN = /^((?:\d+(?:-[а-яёА-ЯЁa-zA-Z]+)?\s*)?[а-яёА-ЯЁa-zA-Z][а-яёА-ЯЁa-zA-Z0-9\s.-]*?)\s+(\d+)(?:[: ](\d+(?:-\d+)?)?)?$/;
+
+// src/utils/language.ts
+function detectLanguage(text) {
+  if (!text) return "KJV";
+  const cyrillicMatches = text.match(new RegExp(CYRILLIC_PATTERN, "g"));
+  const cyrillicCount = cyrillicMatches ? cyrillicMatches.length : 0;
+  const alphaChars = text.replace(/[^a-zA-Zа-яёА-ЯЁ]/g, "").length;
+  const cyrillicPercentage = alphaChars > 0 ? cyrillicCount / alphaChars : 0;
+  return cyrillicPercentage > 0.3 ? "RST" : "KJV";
+}
+
+// src/utils/fuzz.ts
+function levenshteinDistance(str1, str2) {
+  const len1 = str1.length;
+  const len2 = str2.length;
+  const matrix = Array.from(
+    { length: len1 + 1 },
+    () => Array.from({ length: len2 + 1 }, () => 0)
+  );
+  for (let i = 0; i <= len1; i++) {
+    matrix[i][0] = i;
+  }
+  for (let j = 0; j <= len2; j++) {
+    matrix[0][j] = j;
+  }
+  for (let i = 1; i <= len1; i++) {
+    for (let j = 1; j <= len2; j++) {
+      const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
+      const minVal = Math.min(
+        (matrix[i - 1]?.[j] ?? 0) + 1,
+        // deletion
+        (matrix[i]?.[j - 1] ?? 0) + 1,
+        // insertion
+        (matrix[i - 1]?.[j - 1] ?? 0) + cost
+        // substitution
+      );
+      matrix[i][j] = minVal;
+    }
+  }
+  return matrix[len1]?.[len2] ?? 0;
+}
+function isPrefix(str1, str2) {
+  return str2.toLowerCase().startsWith(str1.toLowerCase());
+}
+function findBestMatch(input, candidates) {
+  if (candidates.length === 0) return null;
+  const inputLower = input.toLowerCase().trim();
+  const exactMatch = candidates.find((c) => c.toLowerCase() === inputLower);
+  if (exactMatch) return exactMatch;
+  const prefixMatches = candidates.filter((c) => isPrefix(inputLower, c));
+  if (prefixMatches.length > 0) {
+    return prefixMatches.reduce((a, b) => a.length < b.length ? a : b);
+  }
+  let bestMatch = null;
+  let minDistance = Infinity;
+  for (const candidate of candidates) {
+    const distance = levenshteinDistance(inputLower, candidate.toLowerCase());
+    if (distance < minDistance) {
+      minDistance = distance;
+      bestMatch = candidate;
+    }
+  }
+  if (!bestMatch) return null;
+  const maxAllowedDistance = Math.min(3, Math.max(1, Math.floor(inputLower.length / 2)));
+  return minDistance <= maxAllowedDistance && minDistance < inputLower.length ? bestMatch : null;
+}
+
+// src/search/parser.ts
+var LATIN_BOOK_ENTRIES = [];
+var CYRILLIC_BOOK_ENTRIES = [];
+for (const book of BIBLE_BOOKS) {
+  LATIN_BOOK_ENTRIES.push({ name: book.long_name, book_number: book.book_number });
+  LATIN_BOOK_ENTRIES.push({ name: book.short_name, book_number: book.book_number });
+  for (const abbr of book.abbreviations) {
+    if (/[а-яёА-ЯЁ]/.test(abbr)) {
+      CYRILLIC_BOOK_ENTRIES.push({ name: abbr, book_number: book.book_number });
+    } else {
+      LATIN_BOOK_ENTRIES.push({ name: abbr, book_number: book.book_number });
+    }
+  }
+}
+var LATIN_CANDIDATE_NAMES = Array.from(new Set(LATIN_BOOK_ENTRIES.map((e) => e.name)));
+var CYRILLIC_CANDIDATE_NAMES = Array.from(new Set(CYRILLIC_BOOK_ENTRIES.map((e) => e.name)));
+function parseReference(input) {
+  if (!input || typeof input !== "string") {
+    return null;
+  }
+  const trimmed = input.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const match = trimmed.match(REFERENCE_PATTERN);
+  if (!match) {
+    return null;
+  }
+  const [, bookPart, chapterStr, verseStr] = match;
+  if (!bookPart) {
+    return null;
+  }
+  const bookName = bookPart.trim();
+  const bookNumber = findBookNumber(bookName);
+  if (bookNumber === null) {
+    return null;
+  }
+  const chapter = parseInt(chapterStr ?? "", 10);
+  if (isNaN(chapter) || chapter < 1 || chapter > 999) {
+    return null;
+  }
+  if (!verseStr) {
+    return {
+      book_number: bookNumber,
+      bookName: getBookName(bookNumber),
+      chapter,
+      isRange: false
+    };
+  }
+  const verseMatch = verseStr.match(/^(\d+)(?:-(\d+))?$/);
+  if (!verseMatch) {
+    return null;
+  }
+  const verseStart = parseInt(verseMatch[1] ?? "", 10);
+  if (isNaN(verseStart) || verseStart < 1 || verseStart > 999) {
+    return null;
+  }
+  const verseEnd = verseMatch[2] ? parseInt(verseMatch[2], 10) : verseStart;
+  if (isNaN(verseEnd) || verseEnd < verseStart || verseEnd > 999) {
+    return null;
+  }
+  return {
+    book_number: bookNumber,
+    bookName: getBookName(bookNumber),
+    chapter,
+    verseStart,
+    verseEnd,
+    isRange: verseStart !== verseEnd
+  };
+}
+function findBookNumber(bookName) {
+  const cleaned = bookName.trim().replace(/\.+$/, "").toLowerCase();
+  if (!cleaned) return null;
+  for (const book of BIBLE_BOOKS) {
+    if (book.short_name.toLowerCase() === cleaned || book.long_name.toLowerCase() === cleaned) {
+      return book.book_number;
+    }
+    for (const abbr of book.abbreviations) {
+      const cleanAbbr = abbr.trim().replace(/\.+$/, "").toLowerCase();
+      if (cleanAbbr === cleaned) {
+        return book.book_number;
+      }
+    }
+  }
+  const isCyrillic = /[а-яёА-ЯЁ]/.test(cleaned);
+  const candidates = isCyrillic ? CYRILLIC_CANDIDATE_NAMES : LATIN_CANDIDATE_NAMES;
+  const entries = isCyrillic ? CYRILLIC_BOOK_ENTRIES : LATIN_BOOK_ENTRIES;
+  const match = findBestMatch(cleaned, candidates);
+  if (!match) {
+    return null;
+  }
+  const entry = entries.find((e) => e.name.toLowerCase() === match.toLowerCase());
+  return entry?.book_number ?? null;
+}
+function getBookName(bookNumber) {
+  const book = BIBLE_BOOKS.find((b) => b.book_number === bookNumber);
+  return book?.long_name ?? `Book ${bookNumber}`;
+}
+function splitKeywords(input) {
+  return input.toLowerCase().trim().split(/\s+/).filter((word) => word.length > 0);
+}
+
+// src/utils/logger.ts
+var DEBUG = false;
+function debug(...args) {
+  if (DEBUG) {
+    console.debug(...args);
+  }
+}
+
+// src/database/queries.ts
+function capitalizeFirst(str) {
+  if (str.length === 0) return str;
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+function getRussianNumbering(db) {
+  let stmt;
+  try {
+    stmt = db.prepare(`SELECT value FROM info WHERE name = 'russian_numbering'`);
+    let result = false;
+    if (stmt.step()) {
+      const row = stmt.getAsObject();
+      result = row.value === "true";
+    }
+    return result;
+  } catch (error) {
+    console.error("Error reading russian_numbering flag:", error);
+    return false;
+  } finally {
+    if (stmt) stmt.free();
+  }
+}
+function mapRowToVerse(row, translation) {
+  return {
+    book_number: row.book_number,
+    book_name_short: row.short_name || "Unknown",
+    book_name_long: row.long_name || "Unknown Book",
+    chapter: row.chapter,
+    verse: row.verse,
+    text: row.text || "",
+    translation
+  };
+}
+var VERSE_SELECT = `
+	SELECT
+		v.book_number, b.short_name, b.long_name, v.chapter, v.verse, v.text
+	FROM verses v
+	JOIN books b ON v.book_number = b.book_number
+`;
+function getVerse(dbInstance, bookNumber, chapter, verse) {
+  if (!dbInstance.isLoaded) {
+    throw new Error("Database not loaded");
+  }
+  let stmt;
+  try {
+    stmt = dbInstance.db.prepare(
+      `${VERSE_SELECT} WHERE v.book_number = ? AND v.chapter = ? AND v.verse = ?`
+    );
+    stmt.bind([bookNumber, chapter, verse]);
+    if (stmt.step()) {
+      const result = mapRowToVerse(stmt.getAsObject(), dbInstance.translation);
+      debug(`[DB] Found verse: ${result.book_name_short} ${result.chapter}:${result.verse}`);
+      return result;
+    }
+    debug(`[DB] Verse not found: Book#${bookNumber}, Ch${chapter}:V${verse}`);
+    return null;
+  } catch (error) {
+    console.error("Error fetching verse:", error);
+    return null;
+  } finally {
+    if (stmt) stmt.free();
+  }
+}
+function getChapter(dbInstance, bookNumber, chapter) {
+  if (!dbInstance.isLoaded) {
+    throw new Error("Database not loaded");
+  }
+  const verses = [];
+  let stmt;
+  try {
+    debug(`[DB] getChapter: Book#${bookNumber}, Chapter${chapter} from ${dbInstance.translation}`);
+    stmt = dbInstance.db.prepare(
+      `${VERSE_SELECT} WHERE v.book_number = ? AND v.chapter = ? ORDER BY v.verse`
+    );
+    stmt.bind([bookNumber, chapter]);
+    while (stmt.step()) {
+      verses.push(mapRowToVerse(stmt.getAsObject(), dbInstance.translation));
+    }
+    debug(`[DB] getChapter found ${verses.length} verses`);
+  } catch (error) {
+    console.error("Error fetching chapter:", error);
+  } finally {
+    if (stmt) stmt.free();
+  }
+  return verses;
+}
+function getVerseRange(dbInstance, bookNumber, chapter, verseStart, verseEnd) {
+  if (!dbInstance.isLoaded) {
+    throw new Error("Database not loaded");
+  }
+  const verses = [];
+  let stmt;
+  try {
+    debug(`[DB] getVerseRange: Book#${bookNumber}, Ch${chapter}:${verseStart}-${verseEnd} from ${dbInstance.translation}`);
+    stmt = dbInstance.db.prepare(
+      `${VERSE_SELECT} WHERE v.book_number = ? AND v.chapter = ? AND v.verse BETWEEN ? AND ? ORDER BY v.verse`
+    );
+    stmt.bind([bookNumber, chapter, verseStart, verseEnd]);
+    while (stmt.step()) {
+      verses.push(mapRowToVerse(stmt.getAsObject(), dbInstance.translation));
+    }
+    debug(`[DB] getVerseRange found ${verses.length} verses`);
+  } catch (error) {
+    console.error("Error fetching verse range:", error);
+  } finally {
+    if (stmt) stmt.free();
+  }
+  return verses;
+}
+function searchVersesKeyword(dbInstance, keywords, limit = 100) {
+  if (!dbInstance.isLoaded) {
+    throw new Error("Database not loaded");
+  }
+  if (keywords.length === 0) {
+    return [];
+  }
+  const verses = [];
+  const startTime = performance.now();
+  let stmt;
+  try {
+    const whereConditions = keywords.map((kw) => {
+      const capitalized = capitalizeFirst(kw);
+      if (capitalized !== kw) {
+        return `(v.text LIKE ? OR v.text LIKE ?)`;
+      }
+      return `v.text LIKE ?`;
+    }).join(" AND ");
+    const query = `${VERSE_SELECT} WHERE ${whereConditions} LIMIT ?`;
+    debug("[DB Query] Searching for keywords:", keywords);
+    stmt = dbInstance.db.prepare(query);
+    const params = [];
+    for (const kw of keywords) {
+      const capitalized = capitalizeFirst(kw);
+      params.push(`%${kw}%`);
+      if (capitalized !== kw) {
+        params.push(`%${capitalized}%`);
+      }
+    }
+    params.push(limit);
+    stmt.bind(params);
+    const rowStartTime = performance.now();
+    while (stmt.step()) {
+      verses.push(mapRowToVerse(stmt.getAsObject(), dbInstance.translation));
+    }
+    const rowTime = performance.now() - rowStartTime;
+    const totalTime = performance.now() - startTime;
+    debug(`[DB Query] Found ${verses.length} verses for keywords: ${keywords.join(", ")} (${totalTime.toFixed(2)}ms total, ${rowTime.toFixed(2)}ms rows)`);
+  } catch (error) {
+    console.error("Error searching verses:", error);
+    console.error("Keywords:", keywords);
+  } finally {
+    if (stmt) stmt.free();
+  }
+  return verses;
+}
+
+// src/search/engine.ts
+var SearchCache = class {
+  constructor() {
+    this.cache = /* @__PURE__ */ new Map();
+    this.maxSize = 100;
+  }
+  get(key) {
+    return this.cache.get(key);
+  }
+  set(key, value) {
+    if (this.cache.size >= this.maxSize) {
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey) {
+        this.cache.delete(firstKey);
+      }
+    }
+    this.cache.set(key, value);
+  }
+  clear() {
+    this.cache.clear();
+  }
+};
+var searchCache = new SearchCache();
+
+// src/utils/book-mappings.ts
+var BOOK_MAPPINGS = {
+  // Old Testament
+  GENESIS: 10,
+  EXODUS: 20,
+  LEVITICUS: 30,
+  NUMBERS: 40,
+  DEUTERONOMY: 50,
+  JOSHUA: 60,
+  JUDGES: 70,
+  RUTH: 80,
+  FIRST_SAMUEL: 90,
+  SECOND_SAMUEL: 100,
+  FIRST_KINGS: 110,
+  SECOND_KINGS: 120,
+  FIRST_CHRONICLES: 130,
+  SECOND_CHRONICLES: 140,
+  EZRA: 150,
+  NEHEMIAH: 160,
+  ESTHER: 190,
+  JOB: 220,
+  PSALMS: 230,
+  PROVERBS: 240,
+  ECCLESIASTES: 250,
+  SONG_OF_SOLOMON: 260,
+  ISAIAH: 290,
+  JEREMIAH: 300,
+  LAMENTATIONS: 310,
+  EZEKIEL: 330,
+  DANIEL: 340,
+  HOSEA: 350,
+  JOEL: 360,
+  AMOS: 370,
+  OBADIAH: 380,
+  JONAH: 390,
+  MICAH: 400,
+  NAHUM: 410,
+  HABAKKUK: 420,
+  ZEPHANIAH: 430,
+  HAGGAI: 440,
+  ZECHARIAH: 450,
+  MALACHI: 460,
+  // New Testament
+  MATTHEW: 470,
+  MARK: 480,
+  LUKE: 490,
+  JOHN: 500,
+  ACTS: 510,
+  ROMANS: 520,
+  FIRST_CORINTHIANS: 530,
+  SECOND_CORINTHIANS: 540,
+  GALATIANS: 550,
+  EPHESIANS: 560,
+  PHILIPPIANS: 570,
+  COLOSSIANS: 580,
+  FIRST_THESSALONIANS: 590,
+  SECOND_THESSALONIANS: 600,
+  FIRST_TIMOTHY: 610,
+  SECOND_TIMOTHY: 620,
+  TITUS: 630,
+  PHILEMON: 640,
+  HEBREWS: 650,
+  JAMES: 660,
+  FIRST_PETER: 670,
+  SECOND_PETER: 680,
+  FIRST_JOHN: 690,
+  SECOND_JOHN: 700,
+  THIRD_JOHN: 710,
+  JUDE: 720,
+  REVELATION: 730
+};
+var BOOK_NUMBER_TO_NAME = Object.fromEntries(
+  Object.entries(BOOK_MAPPINGS).map(([name, num]) => [num, name])
+);
+var OT_BOOKS = [
+  BOOK_MAPPINGS.GENESIS,
+  BOOK_MAPPINGS.EXODUS,
+  BOOK_MAPPINGS.LEVITICUS,
+  BOOK_MAPPINGS.NUMBERS,
+  BOOK_MAPPINGS.DEUTERONOMY,
+  BOOK_MAPPINGS.JOSHUA,
+  BOOK_MAPPINGS.JUDGES,
+  BOOK_MAPPINGS.RUTH,
+  BOOK_MAPPINGS.FIRST_SAMUEL,
+  BOOK_MAPPINGS.SECOND_SAMUEL,
+  BOOK_MAPPINGS.FIRST_KINGS,
+  BOOK_MAPPINGS.SECOND_KINGS,
+  BOOK_MAPPINGS.FIRST_CHRONICLES,
+  BOOK_MAPPINGS.SECOND_CHRONICLES,
+  BOOK_MAPPINGS.EZRA,
+  BOOK_MAPPINGS.NEHEMIAH,
+  BOOK_MAPPINGS.ESTHER,
+  BOOK_MAPPINGS.JOB,
+  BOOK_MAPPINGS.PSALMS,
+  BOOK_MAPPINGS.PROVERBS,
+  BOOK_MAPPINGS.ECCLESIASTES,
+  BOOK_MAPPINGS.SONG_OF_SOLOMON,
+  BOOK_MAPPINGS.ISAIAH,
+  BOOK_MAPPINGS.JEREMIAH,
+  BOOK_MAPPINGS.LAMENTATIONS,
+  BOOK_MAPPINGS.EZEKIEL,
+  BOOK_MAPPINGS.DANIEL,
+  BOOK_MAPPINGS.HOSEA,
+  BOOK_MAPPINGS.JOEL,
+  BOOK_MAPPINGS.AMOS,
+  BOOK_MAPPINGS.OBADIAH,
+  BOOK_MAPPINGS.JONAH,
+  BOOK_MAPPINGS.MICAH,
+  BOOK_MAPPINGS.NAHUM,
+  BOOK_MAPPINGS.HABAKKUK,
+  BOOK_MAPPINGS.ZEPHANIAH,
+  BOOK_MAPPINGS.HAGGAI,
+  BOOK_MAPPINGS.ZECHARIAH,
+  BOOK_MAPPINGS.MALACHI
+];
+var NT_BOOKS = [
+  BOOK_MAPPINGS.MATTHEW,
+  BOOK_MAPPINGS.MARK,
+  BOOK_MAPPINGS.LUKE,
+  BOOK_MAPPINGS.JOHN,
+  BOOK_MAPPINGS.ACTS,
+  BOOK_MAPPINGS.ROMANS,
+  BOOK_MAPPINGS.FIRST_CORINTHIANS,
+  BOOK_MAPPINGS.SECOND_CORINTHIANS,
+  BOOK_MAPPINGS.GALATIANS,
+  BOOK_MAPPINGS.EPHESIANS,
+  BOOK_MAPPINGS.PHILIPPIANS,
+  BOOK_MAPPINGS.COLOSSIANS,
+  BOOK_MAPPINGS.FIRST_THESSALONIANS,
+  BOOK_MAPPINGS.SECOND_THESSALONIANS,
+  BOOK_MAPPINGS.FIRST_TIMOTHY,
+  BOOK_MAPPINGS.SECOND_TIMOTHY,
+  BOOK_MAPPINGS.TITUS,
+  BOOK_MAPPINGS.PHILEMON,
+  BOOK_MAPPINGS.HEBREWS,
+  BOOK_MAPPINGS.JAMES,
+  BOOK_MAPPINGS.FIRST_PETER,
+  BOOK_MAPPINGS.SECOND_PETER,
+  BOOK_MAPPINGS.FIRST_JOHN,
+  BOOK_MAPPINGS.SECOND_JOHN,
+  BOOK_MAPPINGS.THIRD_JOHN,
+  BOOK_MAPPINGS.JUDE,
+  BOOK_MAPPINGS.REVELATION
+];
+var ALL_BOOKS = [...OT_BOOKS, ...NT_BOOKS];
+
+// src/utils/formatter.ts
+function stripMarkup(text) {
+  if (!text) return "";
+  return text.replace(/<pb\s*\/>/gi, "").replace(/<[Ss]>[^<]*<\/[Ss]>/g, "").replace(/<i>(.*?)<\/i>/gi, "$1").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+}
+function highlightKeywords(text, keywords) {
+  if (!text || keywords.length === 0) return text || "";
+  const uniqueKeywords = Array.from(new Set(keywords.map((k) => k.toLowerCase())));
+  const sortedKeywords = uniqueKeywords.sort((a, b) => b.length - a.length);
+  let result = text;
+  const highlightMap = {};
+  let placeholderIndex = 0;
+  const PLACEHOLDER_START = "\uE000";
+  const PLACEHOLDER_END = "\uE001";
+  sortedKeywords.forEach((keyword) => {
+    try {
+      const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(escapedKeyword, "gi");
+      result = result.replace(regex, (match) => {
+        const placeholder = `${PLACEHOLDER_START}${placeholderIndex++}${PLACEHOLDER_END}`;
+        highlightMap[placeholder] = `**${match}**`;
+        return placeholder;
+      });
+    } catch (error) {
+      console.warn(`Failed to highlight keyword "${keyword}":`, error);
+    }
+  });
+  Object.entries(highlightMap).forEach(([placeholder, highlighted]) => {
+    result = result.split(placeholder).join(highlighted);
+  });
+  return result;
+}
+
+// cli/index.ts
+var colors = {
+  reset: "\x1B[0m",
+  bold: "\x1B[1m",
+  dim: "\x1B[2m",
+  red: "\x1B[31m",
+  green: "\x1B[32m",
+  yellow: "\x1B[33m",
+  blue: "\x1B[34m",
+  magenta: "\x1B[35m",
+  cyan: "\x1B[36m",
+  gray: "\x1B[90m"
+};
+function colorize(colorCode, text, enabled) {
+  return enabled ? `${colorCode}${text}${colors.reset}` : text;
+}
+function findDatabaseFile(dir, baseName) {
+  const candidates = [
+    `${baseName}.SQlite3`,
+    `${baseName}.sqlite3`,
+    `${baseName}.sqlite`,
+    `${baseName}.db`
+  ];
+  for (const candidate of candidates) {
+    const fullPath = path.join(dir, candidate);
+    if (fs.existsSync(fullPath)) {
+      return fullPath;
+    }
+  }
+  return null;
+}
+function resolveDbDir(customDir) {
+  const possibleDirs = [];
+  if (customDir) {
+    possibleDirs.push(path.resolve(customDir));
+  }
+  if (process.env.BIBLE_DB_DIR) {
+    possibleDirs.push(path.resolve(process.env.BIBLE_DB_DIR));
+  }
+  possibleDirs.push(path.resolve(process.cwd(), "pkg"));
+  possibleDirs.push(path.resolve(process.cwd(), "..", "pkg"));
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+  possibleDirs.push(path.resolve(scriptDir, "..", "pkg"));
+  possibleDirs.push(path.resolve(scriptDir, "pkg"));
+  for (const dir of possibleDirs) {
+    if (fs.existsSync(dir)) {
+      const hasKjv = findDatabaseFile(dir, "KJV+") !== null;
+      const hasRst = findDatabaseFile(dir, "RST+") !== null;
+      if (hasKjv || hasRst) {
+        return dir;
+      }
+    }
+  }
+  throw new Error(
+    `Could not locate Bible databases (KJV+ and RST+). Checked:
+  ${possibleDirs.join("\n  ")}
+Use --db-dir <path> or set BIBLE_DB_DIR environment variable.`
+  );
+}
+var sqlJsInstance = null;
+async function getSqlJsStatic() {
+  if (!sqlJsInstance) {
+    sqlJsInstance = await initSqlJs();
+  }
+  return sqlJsInstance;
+}
+async function loadDatabase(dbDir, translation) {
+  const SQL = await getSqlJsStatic();
+  const baseName = translation === "KJV" ? "KJV+" : "RST+";
+  const dbPath = findDatabaseFile(dbDir, baseName);
+  if (!dbPath) {
+    throw new Error(`Database file for ${translation} not found in ${dbDir}`);
+  }
+  const data = fs.readFileSync(dbPath);
+  const db = new SQL.Database(new Uint8Array(data));
+  return {
+    db,
+    translation,
+    isLoaded: true,
+    russianNumbering: getRussianNumbering(db)
+  };
+}
+async function loadDatabasePair(customDbDir) {
+  const dir = resolveDbDir(customDbDir);
+  const [kjv, rst] = await Promise.all([
+    loadDatabase(dir, "KJV"),
+    loadDatabase(dir, "RST")
+  ]);
+  return { kjv, rst };
+}
+function getParallelVerse(verse, targetDb) {
+  const mapped = convertVersification(
+    verse.book_number,
+    verse.chapter,
+    verse.verse,
+    verse.translation === "RST",
+    targetDb.russianNumbering
+  );
+  if (!mapped) {
+    return null;
+  }
+  return getVerse(targetDb, verse.book_number, mapped.chapter, mapped.verse);
+}
+function formatVerseOutput(verse, parallelVerse, includeRaw) {
+  const cleanText = stripMarkup(verse.text);
+  let parallelOutput = null;
+  if (parallelVerse) {
+    parallelOutput = {
+      reference: `${parallelVerse.book_name_long} ${parallelVerse.chapter}:${parallelVerse.verse}`,
+      shortReference: `${parallelVerse.book_name_short} ${parallelVerse.chapter}:${parallelVerse.verse}`,
+      bookNumber: parallelVerse.book_number,
+      bookName: parallelVerse.book_name_long,
+      shortName: parallelVerse.book_name_short,
+      chapter: parallelVerse.chapter,
+      verse: parallelVerse.verse,
+      translation: parallelVerse.translation,
+      text: stripMarkup(parallelVerse.text),
+      ...includeRaw ? { rawText: parallelVerse.text } : {}
+    };
+  }
+  return {
+    reference: `${verse.book_name_long} ${verse.chapter}:${verse.verse}`,
+    shortReference: `${verse.book_name_short} ${verse.chapter}:${verse.verse}`,
+    bookNumber: verse.book_number,
+    bookName: verse.book_name_long,
+    shortName: verse.book_name_short,
+    chapter: verse.chapter,
+    verse: verse.verse,
+    translation: verse.translation,
+    text: cleanText,
+    ...includeRaw ? { rawText: verse.text } : {},
+    parallel: parallelOutput
+  };
+}
+function executeQuery(databases, query, options = {}) {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) {
+    throw new Error("Search query cannot be empty");
+  }
+  const showParallel = options.parallel ?? true;
+  const isRaw = options.raw ?? false;
+  const limit = options.limit && options.limit > 0 ? options.limit : 20;
+  let sourceTranslation;
+  if (options.translation) {
+    sourceTranslation = options.translation;
+  } else {
+    sourceTranslation = detectLanguage(trimmedQuery);
+  }
+  const sourceDb = sourceTranslation === "KJV" ? databases.kjv : databases.rst;
+  const targetDb = sourceTranslation === "KJV" ? databases.rst : databases.kjv;
+  const parsed = parseReference(trimmedQuery);
+  const isAddress = parsed !== null && parsed.book_number !== null;
+  let sourceVerses = [];
+  if (isAddress && parsed.book_number !== null) {
+    if (parsed.verseStart !== void 0 && parsed.verseEnd !== void 0) {
+      sourceVerses = getVerseRange(
+        sourceDb,
+        parsed.book_number,
+        parsed.chapter,
+        parsed.verseStart,
+        parsed.verseEnd
+      );
+    } else if (parsed.verseStart !== void 0) {
+      const v = getVerse(sourceDb, parsed.book_number, parsed.chapter, parsed.verseStart);
+      if (v) sourceVerses = [v];
+    } else if (parsed.chapter !== void 0) {
+      sourceVerses = getChapter(sourceDb, parsed.book_number, parsed.chapter);
+    }
+  } else {
+    const keywords = splitKeywords(trimmedQuery);
+    sourceVerses = searchVersesKeyword(sourceDb, keywords, limit);
+  }
+  const formattedVerses = sourceVerses.map((verse) => {
+    let parallelVerse = null;
+    if (showParallel) {
+      parallelVerse = getParallelVerse(verse, targetDb);
+    }
+    return formatVerseOutput(verse, parallelVerse, isRaw);
+  });
+  return {
+    query: trimmedQuery,
+    type: isAddress ? "address" : "keyword",
+    sourceTranslation,
+    targetTranslation: showParallel ? targetDb.translation : null,
+    totalResults: formattedVerses.length,
+    verses: formattedVerses
+  };
+}
+function renderHumanReadable(result, keywords, colorEnabled) {
+  if (result.verses.length === 0) {
+    return colorize(colors.yellow, `No verses found matching: "${result.query}"`, colorEnabled);
+  }
+  const lines = [];
+  const headerType = result.type === "address" ? "Address Lookup" : "Keyword Search";
+  const parallelInfo = result.targetTranslation ? `${result.sourceTranslation} \u21C4 ${result.targetTranslation}` : result.sourceTranslation;
+  lines.push(
+    colorize(
+      colors.cyan + colors.bold,
+      `\u{1F4D6} [${headerType}] "${result.query}" (${parallelInfo}) - ${result.totalResults} result(s)`,
+      colorEnabled
+    )
+  );
+  lines.push(colorize(colors.gray, "\u2500".repeat(70), colorEnabled));
+  for (let i = 0; i < result.verses.length; i++) {
+    const v = result.verses[i];
+    if (!v) continue;
+    let srcText = v.text;
+    if (result.type === "keyword" && keywords.length > 0) {
+      if (colorEnabled) {
+        srcText = highlightWithAnsi(srcText, keywords);
+      } else {
+        srcText = highlightKeywords(srcText, keywords);
+      }
+    }
+    if (v.parallel) {
+      const refHeading = `${v.shortReference} (${v.translation}) \u21C4 ${v.parallel.shortReference} (${v.parallel.translation})`;
+      lines.push(colorize(colors.bold + colors.green, `[${i + 1}] ${refHeading}`, colorEnabled));
+      lines.push(`  ${colorize(colors.blue, `[${v.translation}]`, colorEnabled)} ${srcText}`);
+      if (v.rawText) {
+        lines.push(`  ${colorize(colors.gray, `[${v.translation} RAW]`, colorEnabled)} ${colorize(colors.dim, v.rawText, colorEnabled)}`);
+      }
+      lines.push(
+        `  ${colorize(colors.magenta, `[${v.parallel.translation}]`, colorEnabled)} ${v.parallel.text}`
+      );
+      if (v.parallel.rawText) {
+        lines.push(`  ${colorize(colors.gray, `[${v.parallel.translation} RAW]`, colorEnabled)} ${colorize(colors.dim, v.parallel.rawText, colorEnabled)}`);
+      }
+    } else {
+      lines.push(
+        colorize(
+          colors.bold + colors.green,
+          `[${i + 1}] ${v.shortReference} (${v.translation})`,
+          colorEnabled
+        )
+      );
+      lines.push(`  ${srcText}`);
+      if (v.rawText) {
+        lines.push(`  ${colorize(colors.gray, "[RAW]", colorEnabled)} ${colorize(colors.dim, v.rawText, colorEnabled)}`);
+      }
+      if (result.targetTranslation) {
+        lines.push(
+          colorize(
+            colors.gray,
+            `  (No direct parallel verse in ${result.targetTranslation})`,
+            colorEnabled
+          )
+        );
+      }
+    }
+    if (i < result.verses.length - 1) {
+      lines.push(colorize(colors.gray, "\u2500".repeat(40), colorEnabled));
+    }
+  }
+  return lines.join("\n");
+}
+function highlightWithAnsi(text, keywords) {
+  let res = text;
+  for (const kw of keywords) {
+    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const reg = new RegExp(`(${escaped})`, "gi");
+    res = res.replace(reg, `${colors.yellow}${colors.bold}$1${colors.reset}`);
+  }
+  return res;
+}
+function parseArgs(args) {
+  const options = {
+    json: false,
+    parallel: true,
+    // Enabled by default!
+    raw: false,
+    limit: 20,
+    color: process.stdout.isTTY ?? true,
+    interactive: false,
+    help: false
+  };
+  const queryParts = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg) continue;
+    if (arg === "--help" || arg === "-h") {
+      options.help = true;
+    } else if (arg === "--json") {
+      options.json = true;
+    } else if (arg === "--no-parallel") {
+      options.parallel = false;
+    } else if (arg === "--parallel" || arg === "-p") {
+      options.parallel = true;
+    } else if (arg === "--raw" || arg === "-r") {
+      options.raw = true;
+    } else if (arg === "--no-color") {
+      options.color = false;
+    } else if (arg === "--color") {
+      options.color = true;
+    } else if (arg === "--interactive" || arg === "-i") {
+      options.interactive = true;
+    } else if (arg === "--limit" || arg === "-n") {
+      const next = args[++i];
+      if (next) options.limit = parseInt(next, 10) || 20;
+    } else if (arg.startsWith("--limit=")) {
+      const val = arg.split("=")[1];
+      if (val) options.limit = parseInt(val, 10) || 20;
+    } else if (arg === "--translation" || arg === "-t") {
+      const next = args[++i]?.toUpperCase();
+      if (next === "KJV" || next === "RST") {
+        options.translation = next;
+      }
+    } else if (arg.startsWith("--translation=")) {
+      const val = arg.split("=")[1]?.toUpperCase();
+      if (val === "KJV" || val === "RST") {
+        options.translation = val;
+      }
+    } else if (arg === "--db-dir") {
+      options.dbDir = args[++i];
+    } else if (arg.startsWith("--db-dir=")) {
+      options.dbDir = arg.split("=")[1];
+    } else if (!arg.startsWith("-")) {
+      queryParts.push(arg);
+    }
+  }
+  if (queryParts.length > 0) {
+    options.query = queryParts.join(" ");
+  }
+  return options;
+}
+function printHelp() {
+  console.log(`
+Bible Search & Parallel Verse CLI (KJV \u21C4 RST)
+
+USAGE:
+  bible-cli [OPTIONS] "<QUERY>"
+  echo "<QUERY>" | bible-cli [OPTIONS]
+  bible-cli -i
+
+EXAMPLES:
+  # Address Search (Single verse, with parallel RST/KJV by default)
+  bible-cli "John 3:16"
+  bible-cli "\u0418\u043D 3:16"
+
+  # Versification mapping (Psalms, Job, Song of Solomon)
+  bible-cli "Ps 23:1"          # Maps KJV Psalm 23:1 -> RST Psalm 22:1
+  bible-cli "\u041F\u0441 50:3"          # Maps RST Psalm 50:3 -> KJV Psalm 51:1
+
+  # Verse Ranges & Full Chapters
+  bible-cli "Gen 1:1-3"
+  bible-cli "\u0420\u0438\u043C 8:28-30"
+  bible-cli "Jude 1"
+
+  # Keyword Search (AND logic across terms)
+  bible-cli "grace faith"
+  bible-cli "\u0431\u043B\u0430\u0433\u043E\u0434\u0430\u0442\u044C" --limit 10
+
+  # JSON Output Format
+  bible-cli "John 3:16" --json
+
+  # Disable Parallel Verses
+  bible-cli "John 3:16" --no-parallel
+
+  # Interactive REPL
+  bible-cli -i
+
+OPTIONS:
+  -p, --parallel             Include parallel translation counterpart (Default: ON)
+  --no-parallel              Disable parallel translation lookup
+  --json                     Output structured JSON
+  -r, --raw                  Output raw verse text including Strong's numbers and markup
+  -n, --limit <num>          Max results for keyword search (default: 20)
+  -t, --translation <KJV|RST> Force source translation instead of auto-detecting
+  -i, --interactive          Start interactive REPL mode
+  --db-dir <path>            Custom path to database directory (containing KJV+ and RST+)
+  --no-color                 Disable ANSI terminal colors
+  -h, --help                 Show this help screen
+`);
+}
+async function startInteractive(databases, initialOptions) {
+  console.log(
+    colorize(
+      colors.cyan + colors.bold,
+      '\u{1F4D6} Bible Search CLI Interactive Mode (KJV \u21C4 RST)\nType a reference, keywords, or command. Type "exit" or "quit" to leave.\nType "help" for options.',
+      initialOptions.color
+    )
+  );
+  const state = {
+    parallel: initialOptions.parallel,
+    json: initialOptions.json,
+    raw: initialOptions.raw,
+    limit: initialOptions.limit,
+    color: initialOptions.color,
+    translation: initialOptions.translation
+  };
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: colorize(colors.green + colors.bold, "bible> ", state.color)
+  });
+  rl.prompt();
+  for await (const line of rl) {
+    const input = line.trim();
+    if (!input) {
+      rl.prompt();
+      continue;
+    }
+    if (input === "exit" || input === "quit" || input === ":q") {
+      break;
+    }
+    if (input === "help" || input === "?") {
+      console.log(`
+Interactive Commands:
+  parallel on|off   Toggle parallel translation lookup (current: ${state.parallel ? "on" : "off"})
+  json on|off       Toggle JSON output (current: ${state.json ? "on" : "off"})
+  raw on|off        Toggle raw markup (current: ${state.raw ? "on" : "off"})
+  limit <n>         Set keyword search limit (current: ${state.limit})
+  trans kjv|rst|auto Set source translation override (current: ${state.translation ?? "auto"})
+  exit, quit        Exit interactive mode
+`);
+      rl.prompt();
+      continue;
+    }
+    if (input.startsWith("parallel ")) {
+      state.parallel = input.split(" ")[1] === "on";
+      console.log(`Parallel lookup: ${state.parallel ? "ON" : "OFF"}`);
+      rl.prompt();
+      continue;
+    }
+    if (input.startsWith("json ")) {
+      state.json = input.split(" ")[1] === "on";
+      console.log(`JSON output: ${state.json ? "ON" : "OFF"}`);
+      rl.prompt();
+      continue;
+    }
+    if (input.startsWith("raw ")) {
+      state.raw = input.split(" ")[1] === "on";
+      console.log(`Raw markup: ${state.raw ? "ON" : "OFF"}`);
+      rl.prompt();
+      continue;
+    }
+    if (input.startsWith("limit ")) {
+      const limitPart = input.split(" ")[1];
+      if (limitPart) {
+        const n = parseInt(limitPart, 10);
+        if (!isNaN(n) && n > 0) {
+          state.limit = n;
+          console.log(`Keyword search limit set to ${n}`);
+        }
+      }
+      rl.prompt();
+      continue;
+    }
+    if (input.startsWith("trans ")) {
+      const val = input.split(" ")[1]?.toUpperCase();
+      if (val === "KJV" || val === "RST") {
+        state.translation = val;
+        console.log(`Source translation forced to ${val}`);
+      } else {
+        state.translation = void 0;
+        console.log("Source translation set to auto-detect");
+      }
+      rl.prompt();
+      continue;
+    }
+    try {
+      const result = executeQuery(databases, input, state);
+      if (state.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        const kw = result.type === "keyword" ? splitKeywords(input) : [];
+        console.log(renderHumanReadable(result, kw, state.color));
+      }
+    } catch (err) {
+      console.error(colorize(colors.red, `Error: ${err.message}`, state.color));
+    }
+    console.log();
+    rl.prompt();
+  }
+  console.log("Goodbye!");
+}
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+  if (options.help) {
+    printHelp();
+    return;
+  }
+  let stdinQuery;
+  if (!options.query && !options.interactive && !process.stdin.isTTY) {
+    const chunks = [];
+    for await (const chunk of process.stdin) {
+      chunks.push(chunk);
+    }
+    const piped = Buffer.concat(chunks).toString("utf-8").trim();
+    if (piped) {
+      stdinQuery = piped;
+    }
+  }
+  const query = options.query || stdinQuery;
+  if (!query && !options.interactive) {
+    printHelp();
+    process.exit(1);
+  }
+  let databases;
+  try {
+    databases = await loadDatabasePair(options.dbDir);
+  } catch (err) {
+    console.error(
+      colorize(colors.red, `Failed to load Bible databases: ${err.message}`, options.color)
+    );
+    process.exit(1);
+  }
+  if (options.interactive) {
+    await startInteractive(databases, options);
+    return;
+  }
+  if (!query) return;
+  try {
+    const result = executeQuery(databases, query, options);
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      const kw = result.type === "keyword" ? splitKeywords(query) : [];
+      console.log(renderHumanReadable(result, kw, options.color));
+    }
+  } catch (err) {
+    console.error(colorize(colors.red, `Error: ${err.message}`, options.color));
+    process.exit(1);
+  }
+}
+if (typeof process !== "undefined" && process.argv && process.argv[1]) {
+  const currentFile = path.resolve(process.argv[1]);
+  if (currentFile.endsWith("cli/index.ts") || currentFile.endsWith("cli/index.mjs") || currentFile.endsWith("cli/index.js") || currentFile.endsWith("cli/bible-cli")) {
+    main().catch((err) => {
+      console.error("Fatal:", err);
+      process.exit(1);
+    });
+  }
+}
+export {
+  executeQuery,
+  loadDatabase,
+  loadDatabasePair,
+  main,
+  parseArgs,
+  renderHumanReadable,
+  resolveDbDir,
+  startInteractive
+};

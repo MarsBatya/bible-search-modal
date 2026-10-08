@@ -13,6 +13,8 @@ export default defineConfig(
 		'package.json',
 		'package-lock.json',
 		'tsconfig.json',
+		'cli/bible-cli',
+		'temp/**',
 	]),
 	{
 		languageOptions: {
@@ -30,14 +32,12 @@ export default defineConfig(
 	},
 	...obsidianmd.configs.recommended,
 	{
-		// tests/ and vitest.config.ts run under Node/Vitest, not inside
+		// cli/, tests/, and vitest.config.ts run under Node, not inside
 		// Obsidian - the obsidianmd rules above encode constraints of the
 		// actual plugin runtime (no console.log, no Node built-ins,
 		// sentence-case UI text, settings-tab patterns) that don't apply to
-		// test code. Type-safety rules are also relaxed here: test helpers
-		// (particularly test-utils.ts's assertion helpers) legitimately
-		// take loosely-typed input to validate arbitrary shapes.
-		files: ['tests/**/*.ts', 'vitest.config.ts'],
+		// CLI and test code.
+		files: ['cli/**/*.ts', 'tests/**/*.ts', 'vitest.config.ts'],
 		languageOptions: {
 			globals: {
 				...globals.node,

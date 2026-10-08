@@ -33,6 +33,36 @@ npm run dev
 npm run build
 ```
 
+### CLI tool (`cli/`)
+
+A standalone CLI tool for Bible verse lookups and bilingual KJV ⇄ RST parallel alignment (with Synodal versification mapping):
+
+```bash
+# Run CLI directly
+./cli/bible-cli "John 3:16"
+
+# Or via npm script
+npm run cli -- "John 3:16"
+
+# Structured JSON output
+./cli/bible-cli "John 3:16" --json
+
+# Versification mapping across traditions (KJV Ps 23:1 ⇄ RST Ps 22:1)
+./cli/bible-cli "Ps 23:1"
+
+# Keyword search (AND logic)
+./cli/bible-cli "grace faith" --limit 10
+
+# Disable parallel counterpart
+./cli/bible-cli "John 3:16" --no-parallel
+
+# Interactive REPL session (databases stay in memory)
+./cli/bible-cli -i
+
+# Rebuild CLI executable after edits
+npm run build:cli
+```
+
 ## Linting
 
 - ESLint is preconfigured with `eslint-plugin-obsidianmd` for Obsidian-specific rules.
@@ -47,6 +77,7 @@ npm run build
     ```
     src/
       main.ts           # Plugin entry point, lifecycle management
+      index.ts          # Core exports for external consumers & CLI
       settings.ts       # Settings interface and defaults
       commands/         # Command implementations
         command1.ts
@@ -58,6 +89,9 @@ npm run build
         helpers.ts
         constants.ts
       types.ts         # TypeScript interfaces and types
+    cli/
+      index.ts          # CLI implementation (search, parallel, REPL)
+      bible-cli         # Bundled standalone executable
     ```
 - **Do not commit build artifacts**: Never commit `node_modules/`, `main.js`, or other generated files to version control.
 - Keep the plugin small. Avoid large dependencies. Prefer browser-compatible packages.
