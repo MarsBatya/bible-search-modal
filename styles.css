@@ -108,6 +108,11 @@
 	text-align: center;
 }
 
+.search-more-results {
+	padding: 8px 4px;
+	text-align: center;
+}
+
 /* Individual Verse Result */
 .bible-verse-result {
 	padding: 12px;

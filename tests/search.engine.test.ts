@@ -83,6 +83,21 @@ describe('Search Engine', () => {
 	});
 
 	describe('keyword search', () => {
+		it('should return keyword results in non-overlapping pages and report when more remain', async () => {
+			const first = await search('God', kjvDb, rstDb, false, 0);
+			const second = await search('God', kjvDb, rstDb, false, first.results.length);
+			const firstKeys = new Set(
+				first.results.map((v) => `${v.book_number}:${v.chapter}:${v.verse}`)
+			);
+
+			expect(first.results).toHaveLength(100);
+			expect(first.isTruncated).toBe(true);
+			expect(second.results.length).toBeGreaterThan(0);
+			second.results.forEach((v) => {
+				expect(firstKeys.has(`${v.book_number}:${v.chapter}:${v.verse}`)).toBe(false);
+			});
+		});
+
 		it('should route a Latin-text query to KJV and find matches', async () => {
 			const result = await search('grace', kjvDb, rstDb, false);
 			expect(result.isAddressSearch).toBe(false);

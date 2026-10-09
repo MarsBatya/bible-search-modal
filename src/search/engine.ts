@@ -52,7 +52,8 @@ export async function search(
 	query: string,
 	kjvDb: DatabaseInstance | undefined,
 	rstDb: DatabaseInstance | undefined,
-	showParallel: boolean = false
+	showParallel: boolean = false,
+	offset: number = 0
 ): Promise<SearchResult> {
 	if (!query || !query.trim()) {
 		throw new Error('Search query cannot be empty');
@@ -61,7 +62,7 @@ export async function search(
 	const trimmedQuery = query.trim();
 
 	// Check cache
-	const cacheKey = `${trimmedQuery}|${showParallel}`;
+	const cacheKey = `${trimmedQuery}|${showParallel}|${offset}`;
 	const cached = searchCache.get(cacheKey);
 	if (cached) {
 		return cached;
@@ -97,7 +98,7 @@ export async function search(
 	} else {
 		// Keyword search - always try both databases for parallel
 		const keywords = splitKeywords(trimmedQuery);
-		result = keywordSearch(trimmedQuery, keywords, selectedDb, rstDb, kjvDb, showParallel);
+		result = keywordSearch(trimmedQuery, keywords, selectedDb, rstDb, kjvDb, showParallel, offset);
 	}
 
 	// Cache result
@@ -224,9 +225,12 @@ function keywordSearch(
 	selectedDb: DatabaseInstance,
 	rstDb: DatabaseInstance | undefined,
 	kjvDb: DatabaseInstance | undefined,
-	showParallel: boolean
+	showParallel: boolean,
+	offset: number
 ): SearchResult {
-	const results = searchVersesKeyword(selectedDb, keywords);
+	const page = searchVersesKeyword(selectedDb, keywords, KEYWORD_SEARCH_LIMIT + 1, offset);
+	const isTruncated = page.length > KEYWORD_SEARCH_LIMIT;
+	const results = page.slice(0, KEYWORD_SEARCH_LIMIT);
 
 	// Get parallel results if enabled. For keyword search parallel, fetch by
 	// reference (mapped through the versification table when needed) rather
@@ -245,6 +249,6 @@ function keywordSearch(
 		parallelResults,
 		query,
 		isAddressSearch: false,
-		isTruncated: results.length === KEYWORD_SEARCH_LIMIT,
+		isTruncated,
 	};
 }

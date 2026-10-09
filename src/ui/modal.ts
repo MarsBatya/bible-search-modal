@@ -26,6 +26,7 @@ export class BibleSearchModal extends Modal {
 	private resultsContainer!: HTMLElement;
 	private currentResults: Verse[] = [];
 	private currentResultsTruncated = false;
+	private isLoadingMore = false;
 	private parallelResults: (Verse | undefined)[] | undefined;
 	private currentKeywords: string[] = [];
 	private selectedIndex: number = -1;
@@ -534,10 +535,48 @@ export class BibleSearchModal extends Modal {
 		);
 
 		if (this.currentResultsTruncated) {
-			this.resultsContainer.createDiv({
+			const moreResultsEl = this.resultsContainer.createDiv({ cls: 'search-more-results' });
+			moreResultsEl.createDiv({
 				cls: 'search-truncation-message',
-				text: `Showing the first ${this.currentResults.length} results. More matches may exist.`,
+				text: `Showing ${this.currentResults.length} results. More matches are available.`,
 			});
+			const loadMoreButton = moreResultsEl.createEl('button', {
+				text: this.isLoadingMore ? 'Loading…' : 'Load more results',
+			});
+			loadMoreButton.disabled = this.isLoadingMore;
+			loadMoreButton.addEventListener('click', () => void this.loadMoreResults());
+		}
+	}
+
+	/** Append the next keyword result page without discarding current selections. */
+	private async loadMoreResults() {
+		if (this.isLoadingMore || !this.currentResultsTruncated) return;
+		const query = this.searchQuery;
+		const priorCount = this.currentResults.length;
+		this.isLoadingMore = true;
+		this.renderResults();
+
+		try {
+			const engine = this.plugin.getDbEngine();
+			const result = await search(
+				query,
+				engine.getDb('KJV'),
+				engine.getDb('RST'),
+				this.plugin.settings.showParallelByDefault,
+				priorCount
+			);
+			if (query !== this.searchQuery) return;
+			this.currentResults = this.currentResults.concat(result.results);
+			this.parallelResults = this.parallelResults
+				? this.parallelResults.concat(result.parallelResults ?? [])
+				: result.parallelResults;
+			this.currentResultsTruncated = result.isTruncated ?? false;
+		} catch (error) {
+			console.error('Failed to load more search results:', error);
+			new Notice('Failed to load more results');
+		} finally {
+			this.isLoadingMore = false;
+			if (query === this.searchQuery) this.renderResults();
 		}
 	}
 

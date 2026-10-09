@@ -17,6 +17,7 @@ A powerful Obsidian plugin for searching and inserting Bible verses with bilingu
 🔍 **Flexible Search**
 - **Address search**: `John 3:16`, `jn 3 16`, `Gen 1:4-5`, `Rom 8`, `Eccl 1:4`
 - **Keyword search**: `grace faith` (multi-word AND logic)
+- Keyword results load in batches of 100; select **Load more results** to continue through broader matches
 - Fuzzy book name matching (handles abbreviations and typos)
 - Support for ranges: `Matt 5:3-12`
 

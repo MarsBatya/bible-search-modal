@@ -267,7 +267,8 @@ export function getRandomVerse(dbInstance: DatabaseInstance): Verse | null {
 export function searchVersesKeyword(
 	dbInstance: DatabaseInstance,
 	keywords: string[],
-	limit: number = KEYWORD_SEARCH_LIMIT
+	limit: number = KEYWORD_SEARCH_LIMIT,
+	offset: number = 0
 ): Verse[] {
 	if (!dbInstance.isLoaded) {
 		throw new Error('Database not loaded');
@@ -298,7 +299,7 @@ export function searchVersesKeyword(
 			})
 			.join(' AND ');
 
-		const query = `${VERSE_SELECT} WHERE ${whereConditions} LIMIT ?`;
+		const query = `${VERSE_SELECT} WHERE ${whereConditions} ORDER BY v.book_number, v.chapter, v.verse LIMIT ? OFFSET ?`;
 
 		debug('[DB Query] Searching for keywords:', keywords);
 		stmt = dbInstance.db.prepare(query);
@@ -314,6 +315,7 @@ export function searchVersesKeyword(
 			}
 		}
 		params.push(limit);
+		params.push(offset);
 
 		stmt.bind(params);
 
