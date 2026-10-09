@@ -62,6 +62,9 @@ const VERSE_SELECT = `
 	JOIN books b ON v.book_number = b.book_number
 `;
 
+/** Maximum number of keyword matches returned to the search modal. */
+export const KEYWORD_SEARCH_LIMIT = 100;
+
 /**
  * Get all books from the database
  */
@@ -264,7 +267,7 @@ export function getRandomVerse(dbInstance: DatabaseInstance): Verse | null {
 export function searchVersesKeyword(
 	dbInstance: DatabaseInstance,
 	keywords: string[],
-	limit: number = 100
+	limit: number = KEYWORD_SEARCH_LIMIT
 ): Verse[] {
 	if (!dbInstance.isLoaded) {
 		throw new Error('Database not loaded');

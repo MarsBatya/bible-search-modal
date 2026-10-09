@@ -8,6 +8,7 @@ import {
 	getChapter,
 	getVerseRange,
 	searchVersesKeyword,
+	KEYWORD_SEARCH_LIMIT,
 } from '../database/queries';
 
 /**
@@ -244,5 +245,6 @@ function keywordSearch(
 		parallelResults,
 		query,
 		isAddressSearch: false,
+		isTruncated: results.length === KEYWORD_SEARCH_LIMIT,
 	};
 }

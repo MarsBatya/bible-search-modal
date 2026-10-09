@@ -25,6 +25,7 @@ export class BibleSearchModal extends Modal {
 	private multiSelectBar!: HTMLElement;
 	private resultsContainer!: HTMLElement;
 	private currentResults: Verse[] = [];
+	private currentResultsTruncated = false;
 	private parallelResults: (Verse | undefined)[] | undefined;
 	private currentKeywords: string[] = [];
 	private selectedIndex: number = -1;
@@ -219,6 +220,7 @@ export class BibleSearchModal extends Modal {
 			}
 
 			this.currentResults = result.results;
+			this.currentResultsTruncated = result.isTruncated ?? false;
 			this.parallelResults = result.parallelResults;
 			// A new search's results are a fresh set - past picks don't carry over
 			this.selectedVerseKeys.clear();
@@ -530,6 +532,13 @@ export class BibleSearchModal extends Modal {
 			},
 			this.selectedIndex
 		);
+
+		if (this.currentResultsTruncated) {
+			this.resultsContainer.createDiv({
+				cls: 'search-truncation-message',
+				text: `Showing the first ${this.currentResults.length} results. More matches may exist.`,
+			});
+		}
 	}
 
 	/**

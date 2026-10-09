@@ -45,6 +45,8 @@ export interface SearchResult {
 	parallelResults?: (Verse | undefined)[];
 	query: string;
 	isAddressSearch: boolean;
+	/** Keyword results reached the query limit, so additional matches may exist. */
+	isTruncated?: boolean;
 }
 
 /**
