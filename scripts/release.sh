@@ -10,7 +10,17 @@ if [ $? -ne 0 ] || [ "$CURRENT_VERSION" = "null" ] || [ -z "$CURRENT_VERSION" ];
 fi
 
 echo "Current version: $CURRENT_VERSION"
-read -p "Enter new version: " NEW_VERSION
+
+# Propose the next patch version as the default. Keep the prompt portable by
+# applying the default after read rather than relying on Bash readline.
+if [[ ! "$CURRENT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    echo "Error: Current version is not in x.y.z format: $CURRENT_VERSION"
+    return 1
+fi
+NEXT_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((${BASH_REMATCH[3]} + 1))"
+
+read -p "Enter new version [or send 'Enter' to use the proposed one: $NEXT_VERSION]: " NEW_VERSION
+NEW_VERSION=${NEW_VERSION:-$NEXT_VERSION}
 
 # Validate that user entered something
 if [ -z "$NEW_VERSION" ]; then
