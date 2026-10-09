@@ -18,6 +18,50 @@ export class DatabaseEngine {
 	private loadingPromises: Map<'KJV' | 'RST', Promise<DatabaseInstance | null>> = new Map();
 	private initPromise: Promise<void> | null = null;
 
+	/** Open a SQLite file and verify it contains the Bible tables and usable data. */
+	private createValidatedInstance(
+		sqlJs: initSqlJs.SqlJsStatic,
+		translation: 'KJV' | 'RST',
+		data: Uint8Array
+	): DatabaseInstance {
+		const db = new sqlJs.Database(data);
+		try {
+			const stmt = db.prepare(`
+				SELECT
+					(SELECT COUNT(*) FROM books) AS book_count,
+					(SELECT COUNT(*) FROM verses) AS verse_count,
+					(SELECT COUNT(*) FROM pragma_table_info('books') WHERE name IN ('book_number', 'short_name', 'long_name')) AS book_columns,
+					(SELECT COUNT(*) FROM pragma_table_info('verses') WHERE name IN ('book_number', 'chapter', 'verse', 'text')) AS verse_columns
+			`);
+			try {
+				if (!stmt.step()) {
+					throw new Error('Database validation query returned no result');
+				}
+				const row = stmt.getAsObject() as Record<string, number>;
+				if (row.book_columns !== 3 || row.verse_columns !== 4) {
+					throw new Error('Missing required books or verses columns');
+				}
+				const bookCount = row.book_count ?? 0;
+				const verseCount = row.verse_count ?? 0;
+				if (bookCount !== 66 || verseCount <= 0) {
+					throw new Error(`Expected 66 Bible books and verse data; found ${bookCount} books and ${verseCount} verses`);
+				}
+			} finally {
+				stmt.free();
+			}
+
+			return {
+				db,
+				translation,
+				isLoaded: true,
+				russianNumbering: getRussianNumbering(db),
+			};
+		} catch (error) {
+			db.close();
+			throw error;
+		}
+	}
+
 	constructor(vault: Vault) {
 		this.vault = vault;
 		this.pluginDataDir = `${vault.configDir}/plugins/bible-search-modal/`;
@@ -134,15 +178,8 @@ export class DatabaseEngine {
 			const data = new Uint8Array(fileData);
 			debug(`[DB] Loaded ${translation} database file: ${data.byteLength} bytes`);
 
-			const db = new sqlJs.Database(data);
-			debug(`[DB] Successfully created ${translation} database instance`);
-
-			const instance: DatabaseInstance = {
-				db,
-				translation,
-				isLoaded: true,
-				russianNumbering: getRussianNumbering(db),
-			};
+			const instance = this.createValidatedInstance(sqlJs, translation, data);
+			debug(`[DB] Successfully created and validated ${translation} database instance`);
 
 			this.databases.set(translation, instance);
 
@@ -180,7 +217,12 @@ export class DatabaseEngine {
 			const arrayBuffer = response.arrayBuffer;
 			debug(`[DB] Downloaded ${translation} database: ${arrayBuffer.byteLength} bytes`);
 
-			// Save to vault
+			// Validate the downloaded database before changing either the cache
+			// file or the currently active in-memory database.
+			debug(`[DB] Validating downloaded ${translation} database`);
+			const instance = this.createValidatedInstance(sqlJs, translation, new Uint8Array(arrayBuffer));
+
+			// Save to vault only after validation succeeds.
 			const fileName = translation === 'KJV' ? 'KJV+.sqlite3' : 'RST+.sqlite3';
 			const filePath = `${this.pluginDataDir}${fileName}`;
 
@@ -190,19 +232,12 @@ export class DatabaseEngine {
 
 			// Save the binary data
 			debug(`[DB] Saving ${translation} database to: ${filePath}`);
-			await this.vault.adapter.writeBinary(filePath, arrayBuffer);
-
-			// Initialize database
-			debug(`[DB] Initializing ${translation} database with SQL.JS`);
-			const db = new sqlJs.Database(new Uint8Array(arrayBuffer));
-			debug(`[DB] Successfully created ${translation} database instance`);
-
-			const instance: DatabaseInstance = {
-				db,
-				translation,
-				isLoaded: true,
-				russianNumbering: getRussianNumbering(db),
-			};
+			try {
+				await this.vault.adapter.writeBinary(filePath, arrayBuffer);
+			} catch (error) {
+				instance.db.close();
+				throw error;
+			}
 
 			this.databases.set(translation, instance);
 

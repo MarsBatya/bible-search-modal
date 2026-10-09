@@ -1,6 +1,15 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+import { dirname, resolve } from 'node:path';
+
+const configDir = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+	resolve: {
+		alias: {
+			obsidian: resolve(configDir, 'tests/obsidian.ts'),
+		},
+	},
 	test: {
 		globals: true,
 		environment: 'node',
