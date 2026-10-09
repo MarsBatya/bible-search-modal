@@ -86,6 +86,43 @@ export function formatVerse(verse: Verse, template: string): string {
 		.replace(/{raw_text}/g, rawText);
 }
 
+/** Format selected verses, combining consecutive verses from one chapter. */
+export function formatVerses(verses: Verse[], template: string, groupAdjacent = true): string[] {
+	const lines: string[] = [];
+	for (let i = 0; i < verses.length;) {
+		const first = verses[i];
+		if (!first) break;
+		let end = i + 1;
+		while (groupAdjacent && end < verses.length) {
+			const previous = verses[end - 1];
+			const next = verses[end];
+			if (!previous || !next || next.translation !== first.translation ||
+				next.book_number !== first.book_number || next.chapter !== first.chapter ||
+				next.verse !== previous.verse + 1) break;
+			end++;
+		}
+
+		const group = verses.slice(i, end);
+		if (group.length === 1) {
+			lines.push(formatVerse(first, template));
+		} else {
+			const last = group[group.length - 1]!;
+			const rawText = group.map((verse) => verse.text || '').join(' ');
+			const text = group.map((verse) => stripMarkup(verse.text)).filter(Boolean).join(' ');
+			lines.push(template
+				.replace(/{short_name}/g, first.book_name_short)
+				.replace(/{long_name}/g, first.book_name_long)
+				.replace(/{chapter}/g, String(first.chapter))
+				.replace(/{verse}/g, `${first.verse}-${last.verse}`)
+				.replace(/{translation}/g, first.translation)
+				.replace(/{text}/g, text)
+				.replace(/{raw_text}/g, rawText));
+		}
+		i = end;
+	}
+	return lines;
+}
+
 /**
  * Highlight matching keywords in text (case-insensitive)
  * Works with both Latin and Cyrillic text

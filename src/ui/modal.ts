@@ -2,7 +2,7 @@ import { App, Modal, Notice, Editor, EditorPosition } from 'obsidian';
 import type BibleSearchPlugin from '../main';
 import { Verse } from '../types';
 import { search } from '../search/engine';
-import { formatVerse } from '../utils/formatter';
+import { formatVerse, formatVerses } from '../utils/formatter';
 import { splitKeywords } from '../search/parser';
 import { verseKey } from '../utils/verse-key';
 import {
@@ -447,11 +447,11 @@ export class BibleSearchModal extends Modal {
 			return;
 		}
 
-		const formatted = verses
-			.map((verse) =>
-				formatVerse(verse, this.plugin.settings.verseFormat)
-			)
-			.join('\n');
+		const formatted = formatVerses(
+			verses,
+			this.plugin.settings.verseFormat,
+			this.plugin.settings.groupAdjacentVerses,
+		).join('\n');
 
 		const copied = await this.writeToClipboard(formatted);
 		if (copied) {
@@ -662,11 +662,11 @@ export class BibleSearchModal extends Modal {
 		}
 
 		try {
-			const formatted = verses
-				.map((verse) =>
-					formatVerse(verse, this.plugin.settings.verseFormat)
-				)
-				.join('\n');
+			const formatted = formatVerses(
+				verses,
+				this.plugin.settings.verseFormat,
+				this.plugin.settings.groupAdjacentVerses,
+			).join('\n');
 
 			const inserted = this.insertTextAtEditor(formatted);
 			if (!inserted) return;

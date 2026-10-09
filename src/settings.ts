@@ -9,6 +9,7 @@ export interface BibleSearchSettings {
 	verseFormat: string;
 	showParallelByDefault: boolean;
 	highlightMatches: boolean;
+	groupAdjacentVerses: boolean;
 }
 
 export const DEFAULT_SETTINGS: BibleSearchSettings = {
@@ -17,6 +18,7 @@ export const DEFAULT_SETTINGS: BibleSearchSettings = {
 	verseFormat: getDefaultVerseFormat(),
 	showParallelByDefault: true, // Show both translations by default
 	highlightMatches: true,
+	groupAdjacentVerses: true,
 };
 
 export class BibleSearchSettingTab extends PluginSettingTab {
@@ -115,6 +117,14 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 							type: 'text',
 							key: 'verseFormat',
 							placeholder: '{short_name} {chapter}:{verse} ({translation}) — {text}'
+						}
+					},
+					{
+						name: 'Group adjacent verses',
+						desc: 'Combine consecutive selected verses from the same chapter onto one line',
+						control: {
+							type: 'toggle',
+							key: 'groupAdjacentVerses'
 						}
 					},
 					{
@@ -225,6 +235,18 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 							return;
 						}
 						this.plugin.settings.verseFormat = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName('Group adjacent verses')
+			.setDesc('Combine consecutive selected verses from the same chapter onto one line')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.groupAdjacentVerses)
+					.onChange(async (value) => {
+						this.plugin.settings.groupAdjacentVerses = value;
 						await this.plugin.saveSettings();
 					}),
 			);

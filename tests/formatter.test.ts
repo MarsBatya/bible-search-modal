@@ -8,6 +8,7 @@ import {
 	stripMarkup,
 	validateTemplate,
 	formatVerse,
+	formatVerses,
 	highlightKeywords,
 	getDefaultVerseFormat,
 	getVersePreview,
@@ -179,6 +180,34 @@ describe('Formatter Utilities', () => {
 			const result = formatVerse(testVerse, template);
 			expect(result).toContain('**Joh 3:16** _KJV_');
 			expect(result).toContain('For God so loved the world');
+		});
+	});
+
+	describe('formatVerses()', () => {
+		const verse = (number: number, text: string, overrides: Partial<Verse> = {}): Verse => ({
+			book_number: 1, book_name_short: 'Gen', book_name_long: 'Genesis', chapter: 1,
+			verse: number, text, translation: 'KJV', ...overrides,
+		});
+		const template = '{short_name} {chapter}:{verse} — {text}';
+
+		it('groups adjacent verses into one range and joins their text', () => {
+			expect(formatVerses([verse(1, 'In the beginning'), verse(2, 'And the earth')], template))
+				.toEqual(['Gen 1:1-2 — In the beginning And the earth']);
+		});
+
+		it('leaves gaps, chapter changes, books, and translations as separate lines', () => {
+			const verses = [
+				verse(1, 'one'), verse(3, 'three'),
+				verse(4, 'four', { chapter: 2 }),
+				verse(5, 'five', { book_number: 2, book_name_short: 'Ex', book_name_long: 'Exodus' }),
+				verse(6, 'six', { translation: 'RST' }),
+			];
+			expect(formatVerses(verses, template)).toHaveLength(5);
+		});
+
+		it('can disable grouping', () => {
+			expect(formatVerses([verse(1, 'one'), verse(2, 'two')], template, false))
+				.toEqual(['Gen 1:1 — one', 'Gen 1:2 — two']);
 		});
 	});
 
