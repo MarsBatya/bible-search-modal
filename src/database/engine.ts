@@ -1,6 +1,6 @@
 import { requestUrl, Notice, Vault } from 'obsidian';
 import initSqlJs from 'sql.js';
-import { DatabaseInstance } from '../types';
+import { DatabaseInstance, Translation } from '../types';
 import { getWasmBinary } from './wasm-loader';
 import { getRussianNumbering } from './queries';
 import { debug } from '../utils/logger';
@@ -10,12 +10,14 @@ import { debug } from '../utils/logger';
  */
 export class DatabaseEngine {
 	private sqlJs: initSqlJs.SqlJsStatic | null = null;
-	private databases: Map<'KJV' | 'RST', DatabaseInstance> = new Map();
+	private databases: Map<Translation, DatabaseInstance> = new Map();
 	private vault: Vault;
 	private pluginDataDir: string;
 
 	// Track loading state
-	private loadingPromises: Map<'KJV' | 'RST', Promise<DatabaseInstance | null>> = new Map();
+	private loadingPromises: Map<Translation, Promise<DatabaseInstance | null>> = new Map();
+	private operations: Map<Translation, Promise<unknown>> = new Map();
+	private disposed = false;
 	private initPromise: Promise<void> | null = null;
 
 	/** Open a SQLite file and verify it contains the Bible tables and usable data. */
@@ -67,10 +69,41 @@ export class DatabaseEngine {
 		this.pluginDataDir = `${vault.configDir}/plugins/bible-search-modal/`;
 	}
 
+	private assertActive(): void {
+		if (this.disposed) throw new Error('Database engine has been disposed');
+	}
+
+	private serialize<T>(translation: Translation, operation: () => Promise<T>): Promise<T> {
+		const previous = this.operations.get(translation);
+		const running = (async () => {
+			if (previous) await previous.catch(() => undefined);
+			this.assertActive();
+			return operation();
+		})();
+		this.operations.set(translation, running);
+		void running.then(
+			() => { if (this.operations.get(translation) === running) this.operations.delete(translation); },
+			() => { if (this.operations.get(translation) === running) this.operations.delete(translation); },
+		);
+		return running;
+	}
+
+	dispose(): void {
+		if (this.disposed) return;
+		this.disposed = true;
+		for (const instance of this.databases.values()) {
+			instance.isLoaded = false;
+			instance.db.close();
+		}
+		this.databases.clear();
+		if (engineInstance === this) engineInstance = null;
+	}
+
 	/**
 	 * Initialize sql.js library
 	 */
 	async initSqlJs(): Promise<void> {
+		this.assertActive();
 		if (this.sqlJs) {
 			debug('[SQL.JS] Already initialized, skipping');
 			return;
@@ -102,7 +135,9 @@ export class DatabaseEngine {
 				};
 
 				debug('[SQL.JS] Calling initSqlJs with wasmBinary option');
-				this.sqlJs = await initSqlJs(initOptions);
+				const sqlJs = await initSqlJs(initOptions);
+				this.assertActive();
+				this.sqlJs = sqlJs;
 				debug('[SQL.JS] Successfully initialized sql.js');
 			} catch (error) {
 				this.initPromise = null;
@@ -126,6 +161,7 @@ export class DatabaseEngine {
 		if (!this.sqlJs) {
 			await this.initSqlJs();
 		}
+		this.assertActive();
 		return this.sqlJs!;
 	}
 
@@ -134,6 +170,7 @@ export class DatabaseEngine {
 	 * Returns a promise that can be tracked for loading status
 	 */
 	loadDb(translation: 'KJV' | 'RST'): Promise<DatabaseInstance | null> {
+		if (this.disposed) return Promise.reject(new Error('Database engine has been disposed'));
 		// Return cached instance if already loaded
 		const cached = this.databases.get(translation);
 		if (cached?.isLoaded) {
@@ -147,14 +184,15 @@ export class DatabaseEngine {
 		}
 
 		// Create loading promise and cache it
-		const loadPromise = this.loadDbInternal(translation);
+		const loadPromise = this.serialize(translation, () => this.loadDbInternal(translation));
 		this.loadingPromises.set(translation, loadPromise);
 
 		// Clean up promise cache when done (fire-and-forget - loadPromise
 		// itself is returned below and awaited by callers)
-		void loadPromise.finally(() => {
-			this.loadingPromises.delete(translation);
-		});
+		void loadPromise.then(
+			() => { if (this.loadingPromises.get(translation) === loadPromise) this.loadingPromises.delete(translation); },
+			() => { if (this.loadingPromises.get(translation) === loadPromise) this.loadingPromises.delete(translation); },
+		);
 
 		return loadPromise;
 	}
@@ -163,6 +201,9 @@ export class DatabaseEngine {
 	 * Internal database loading logic
 	 */
 	private async loadDbInternal(translation: 'KJV' | 'RST'): Promise<DatabaseInstance | null> {
+		// A preceding installation may have published while this load was queued.
+		const cached = this.databases.get(translation);
+		if (cached?.isLoaded) return cached;
 		const sqlJs = await this.getSqlJs();
 
 		const fileName = translation === 'KJV' ? 'KJV+.sqlite3' : 'RST+.sqlite3';
@@ -178,15 +219,21 @@ export class DatabaseEngine {
 			const data = new Uint8Array(fileData);
 			debug(`[DB] Loaded ${translation} database file: ${data.byteLength} bytes`);
 
+			this.assertActive();
 			const instance = this.createValidatedInstance(sqlJs, translation, data);
 			debug(`[DB] Successfully created and validated ${translation} database instance`);
 
+			if (this.disposed) {
+				instance.db.close();
+				throw new Error('Database engine has been disposed');
+			}
 			this.databases.set(translation, instance);
 
 			debug(`Loaded ${translation} database from cache`);
 			return instance;
 		} catch (error) {
 			debug(`${translation} database not found in cache:`, String(error));
+			if (this.disposed) throw error;
 			return null;
 		}
 	}
@@ -195,10 +242,15 @@ export class DatabaseEngine {
 	 * Download and cache database from URL
 	 */
 	async fetchDb(translation: 'KJV' | 'RST', url: string): Promise<DatabaseInstance> {
+		return this.serialize(translation, () => this.fetchDbInternal(translation, url));
+	}
+
+	private async fetchDbInternal(translation: Translation, url: string): Promise<DatabaseInstance> {
 		debug(`[DB] Starting download for ${translation} from URL:`, url);
 
 		const sqlJs = await this.getSqlJs();
 
+		let instance: DatabaseInstance | undefined;
 		try {
 			new Notice(`Downloading ${translation} database...`);
 			debug(`[DB] Fetching ${translation} database from URL...`);
@@ -220,7 +272,8 @@ export class DatabaseEngine {
 			// Validate the downloaded database before changing either the cache
 			// file or the currently active in-memory database.
 			debug(`[DB] Validating downloaded ${translation} database`);
-			const instance = this.createValidatedInstance(sqlJs, translation, new Uint8Array(arrayBuffer));
+			this.assertActive();
+			instance = this.createValidatedInstance(sqlJs, translation, new Uint8Array(arrayBuffer));
 
 			// Save to vault only after validation succeeds.
 			const fileName = translation === 'KJV' ? 'KJV+.sqlite3' : 'RST+.sqlite3';
@@ -232,20 +285,24 @@ export class DatabaseEngine {
 
 			// Save the binary data
 			debug(`[DB] Saving ${translation} database to: ${filePath}`);
-			try {
-				await this.vault.adapter.writeBinary(filePath, arrayBuffer);
-			} catch (error) {
-				instance.db.close();
-				throw error;
-			}
+			this.assertActive();
+			await this.vault.adapter.writeBinary(filePath, arrayBuffer);
+			this.assertActive();
 
+			const old = this.databases.get(translation);
 			this.databases.set(translation, instance);
+			if (old && old !== instance) {
+				old.isLoaded = false;
+				old.db.close();
+			}
+			instance = undefined;
 
 			new Notice(`${translation} database downloaded and cached successfully`);
 			debug(`[DB] Successfully downloaded and cached ${translation} database`);
 
-			return instance;
+			return this.databases.get(translation)!;
 		} catch (error) {
+			if (instance) instance.db.close();
 			console.error(`[DB] Failed to download ${translation} database:`, error);
 			console.error(`[DB] Error details:`, {
 				message: String(error),
@@ -259,6 +316,7 @@ export class DatabaseEngine {
 	 * Get cached database instance
 	 */
 	getDb(translation: 'KJV' | 'RST'): DatabaseInstance | undefined {
+		if (this.disposed) return undefined;
 		return this.databases.get(translation);
 	}
 
@@ -272,6 +330,7 @@ export class DatabaseEngine {
 	 * @throws Error if timeout exceeded
 	 */
 	async ensureDb(translation: 'KJV' | 'RST', timeoutMs = 30000): Promise<DatabaseInstance | null> {
+		this.assertActive();
 		// If already loaded, return immediately
 		const cached = this.databases.get(translation);
 		if (cached?.isLoaded) {

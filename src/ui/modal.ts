@@ -1,6 +1,6 @@
 import { App, Modal, Notice, Editor, EditorPosition } from 'obsidian';
 import type BibleSearchPlugin from '../main';
-import { Verse } from '../types';
+import { Verse, TranslationSelection } from '../types';
 import { search } from '../search/engine';
 import { formatVerse, formatVerses } from '../utils/formatter';
 import { splitKeywords } from '../search/parser';
@@ -31,6 +31,10 @@ export class BibleSearchModal extends Modal {
 	private currentKeywords: string[] = [];
 	private selectedIndex: number = -1;
 	private searchQuery: string = '';
+	private translationSelection: TranslationSelection = 'Auto';
+	private requestId = 0;
+	private displayedRequestId = -1;
+	private closed = false;
 	private initialQuery: string = '';
 
 	// The editor and selection/cursor to insert into, captured when the
@@ -57,7 +61,7 @@ export class BibleSearchModal extends Modal {
 	// Debounce delay (ms) - adjust for mobile responsiveness
 	private readonly DEBOUNCE_DELAY = 300;
 
-	constructor(app: App, plugin: BibleSearchPlugin) {
+	constructor(app: App, plugin: BibleSearchPlugin, private readonly onClosed?: () => void) {
 		super(app);
 		this.plugin = plugin;
 		this.modalEl.classList.add('bible-search-modal');
@@ -79,7 +83,20 @@ export class BibleSearchModal extends Modal {
 		this.initialQuery = query;
 	}
 
+	/** Used by translation controls when they are added to the modal. */
+	setTranslationSelection(selection: TranslationSelection): void {
+		if (this.translationSelection === selection || this.closed) return;
+		this.translationSelection = selection;
+		this.handleSearch(this.searchInput.value);
+		if (this.searchDebounceTimer !== null) {
+			window.clearTimeout(this.searchDebounceTimer);
+			this.searchDebounceTimer = null;
+		}
+		if (this.searchQuery.trim()) void this.performSearch(this.searchQuery, this.requestId);
+	}
+
 	onOpen(): void {
+		this.closed = false;
 		// Capture the target editor and its selection/cursor now, before the
 		// modal takes over focus - see the comment on targetEditor above.
 		const activeEditor = this.app.workspace.activeEditor?.editor ?? null;
@@ -115,8 +132,8 @@ export class BibleSearchModal extends Modal {
 
 		// Warm up databases if not already loaded so search is instant when user finishes typing
 		const dbEngine = this.plugin.getDbEngine();
-		void dbEngine.ensureDb('KJV');
-		void dbEngine.ensureDb('RST');
+		void dbEngine.ensureDb('KJV').catch((error: unknown) => console.debug('KJV prewarm failed:', error));
+		void dbEngine.ensureDb('RST').catch((error: unknown) => console.debug('RST prewarm failed:', error));
 
 		// Pre-fill with an explicit initial query (e.g. "search selected text"),
 		// falling back to the last query from this session - handy for inserting
@@ -135,8 +152,11 @@ export class BibleSearchModal extends Modal {
 	 * Waits for user to stop typing before performing expensive database search
 	 */
 	private handleSearch(query: string) {
+		const requestId = ++this.requestId;
 		this.searchQuery = query;
 		this.selectedIndex = -1;
+		this.clearResultData();
+		this.currentSearchAbortController?.abort();
 
 		// Clear previous debounce timer
 		if (this.searchDebounceTimer !== null) {
@@ -153,14 +173,35 @@ export class BibleSearchModal extends Modal {
 
 		// Debounce: wait for user to stop typing
 		this.searchDebounceTimer = window.setTimeout(() => {
-			void this.performSearch(query);
+			this.searchDebounceTimer = null;
+			void this.performSearch(query, requestId);
 		}, this.DEBOUNCE_DELAY);
+	}
+
+	private isCurrent(requestId: number): boolean {
+		return !this.closed && requestId === this.requestId;
+	}
+
+	private hasCurrentResults(): boolean {
+		return this.isCurrent(this.displayedRequestId) && this.searchQuery.trim().length > 0;
+	}
+
+	private clearResultData(): void {
+		this.displayedRequestId = -1;
+		this.currentResults = [];
+		this.currentResultsTruncated = false;
+		this.parallelResults = undefined;
+		this.currentKeywords = [];
+		this.isLoadingMore = false;
+		this.selectedVerseKeys.clear();
+		this.updateMultiSelectBar();
 	}
 
 	/**
 	 * Perform the actual search (after debounce)
 	 */
-	private async performSearch(query: string) {
+	private async performSearch(query: string, requestId: number) {
+		if (!this.isCurrent(requestId)) return;
 		// Cancel previous search if still in progress
 		if (this.currentSearchAbortController) {
 			this.currentSearchAbortController.abort();
@@ -172,7 +213,7 @@ export class BibleSearchModal extends Modal {
 
 		// Double-check this is still the latest query
 		// (user might have typed more while debouncing)
-		if (query !== this.searchQuery) {
+		if (!this.isCurrent(requestId)) {
 			return;
 		}
 
@@ -180,7 +221,7 @@ export class BibleSearchModal extends Modal {
 			const dbEngine = this.plugin.getDbEngine();
 
 			// Check if search was aborted while waiting for DB
-			if (abortSignal.aborted) return;
+			if (abortSignal.aborted || !this.isCurrent(requestId)) return;
 
 			// Ensure at least one database is available (wait if still loading, load concurrently)
 			// 5 second timeout for each database (user can wait, but not forever)
@@ -190,7 +231,7 @@ export class BibleSearchModal extends Modal {
 			]);
 
 			// Check if search was aborted while waiting for DB
-			if (abortSignal.aborted) return;
+			if (abortSignal.aborted || !this.isCurrent(requestId)) return;
 
 			// Convert null to undefined for search function
 			const kjvDb = kjvDbResult ?? undefined;
@@ -209,18 +250,21 @@ export class BibleSearchModal extends Modal {
 				query,
 				kjvDb,
 				rstDb,
-				this.plugin.settings.showParallelByDefault
+				this.plugin.settings.showParallelByDefault,
+				0,
+				{ translation: this.translationSelection }
 			);
 
 			// Check if search was aborted before showing results
-			if (abortSignal.aborted) return;
+			if (abortSignal.aborted || !this.isCurrent(requestId)) return;
 
 			// Only show results if this is still the latest query
-			if (query !== this.searchQuery) {
+			if (!this.isCurrent(requestId)) {
 				return;
 			}
 
 			this.currentResults = result.results;
+			this.displayedRequestId = requestId;
 			this.currentResultsTruncated = result.isTruncated ?? false;
 			this.parallelResults = result.parallelResults;
 			// A new search's results are a fresh set - past picks don't carry over
@@ -238,7 +282,7 @@ export class BibleSearchModal extends Modal {
 			this.renderResults();
 		} catch (error) {
 			// Ignore errors if search was aborted
-			if (!abortSignal.aborted) {
+			if (!abortSignal.aborted && this.isCurrent(requestId)) {
 				console.error('Search error:', error);
 				showError(this.resultsContainer, String(error));
 			}
@@ -249,6 +293,7 @@ export class BibleSearchModal extends Modal {
 	 * Clear the search query, results, and any pending/in-flight search
 	 */
 	private handleClear() {
+		++this.requestId;
 		if (this.searchDebounceTimer !== null) {
 			window.clearTimeout(this.searchDebounceTimer);
 			this.searchDebounceTimer = null;
@@ -259,19 +304,16 @@ export class BibleSearchModal extends Modal {
 		}
 
 		this.searchQuery = '';
-		this.currentResults = [];
-		this.parallelResults = undefined;
 		this.selectedIndex = -1;
-		this.selectedVerseKeys.clear();
+		this.clearResultData();
 		this.resultsContainer.empty();
-		this.updateMultiSelectBar();
 	}
 
 	/**
 	 * Handle keyboard navigation
 	 */
 	private handleKeyDown(event: KeyboardEvent) {
-		if (this.currentResults.length === 0) {
+		if (!this.hasCurrentResults() || this.currentResults.length === 0) {
 			return;
 		}
 
@@ -402,6 +444,7 @@ export class BibleSearchModal extends Modal {
 	 * Insert verse into active editor
 	 */
 	private insertVerse(verse: Verse) {
+		if (!this.hasCurrentResults()) return;
 		try {
 			// Format verse using template
 			const formattedVerse = formatVerse(
@@ -429,6 +472,7 @@ export class BibleSearchModal extends Modal {
 	 * copying each one out to paste elsewhere.
 	 */
 	private async copyVerse(verse: Verse) {
+		if (!this.hasCurrentResults()) return;
 		const formatted = formatVerse(verse, this.plugin.settings.verseFormat);
 		const copied = await this.writeToClipboard(formatted);
 		if (copied) {
@@ -442,6 +486,7 @@ export class BibleSearchModal extends Modal {
 	 * clear the selection or close the modal
 	 */
 	private async copySelectedVerses() {
+		if (!this.hasCurrentResults()) return;
 		const verses = this.getOrderedSelectedVerses();
 		if (verses.length === 0) {
 			return;
@@ -483,6 +528,7 @@ export class BibleSearchModal extends Modal {
 	 * top of the chapter.
 	 */
 	private async expandToChapter(verse: Verse) {
+		if (!this.hasCurrentResults()) return;
 		if (this.searchDebounceTimer !== null) {
 			window.clearTimeout(this.searchDebounceTimer);
 			this.searchDebounceTimer = null;
@@ -490,10 +536,16 @@ export class BibleSearchModal extends Modal {
 
 		const query = `${verse.book_name_short} ${verse.chapter}`;
 		this.searchInput.value = query;
-		this.searchQuery = query;
+		this.handleSearch(query);
+		const requestId = this.requestId;
+		if (this.searchDebounceTimer !== null) {
+			window.clearTimeout(this.searchDebounceTimer);
+			this.searchDebounceTimer = null;
+		}
 		showLoading(this.resultsContainer);
 
-		await this.performSearch(query);
+		await this.performSearch(query, requestId);
+		if (!this.isCurrent(requestId) || !this.hasCurrentResults()) return;
 
 		const index = this.currentResults.findIndex(
 			(v) =>
@@ -512,9 +564,11 @@ export class BibleSearchModal extends Modal {
 	 * Render the current results, reflecting multi-select state
 	 */
 	private renderResults() {
-		if (this.currentResults.length === 0) {
+		if (!this.hasCurrentResults() || this.currentResults.length === 0) {
 			return;
 		}
+		const renderedRequestId = this.displayedRequestId;
+		const isActionCurrent = () => this.isCurrent(renderedRequestId) && this.hasCurrentResults();
 
 		renderResultsList(
 			this.resultsContainer,
@@ -522,13 +576,13 @@ export class BibleSearchModal extends Modal {
 			{
 				highlightMatches: this.plugin.settings.highlightMatches,
 				keywords: this.currentKeywords,
-				onSelect: (verse) => this.insertVerse(verse),
+				onSelect: (verse) => { if (isActionCurrent()) this.insertVerse(verse); },
 				parallelResults: this.parallelResults,
 				multiSelectMode: this.multiSelectMode,
 				isSelected: (verse) => this.selectedVerseKeys.has(verseKey(verse)),
-				onToggleSelect: (verse) => this.handleToggleSelect(verse),
-				onCopy: (verse) => void this.copyVerse(verse),
-				onExpand: (verse) => void this.expandToChapter(verse),
+				onToggleSelect: (verse) => { if (isActionCurrent()) this.handleToggleSelect(verse); },
+				onCopy: (verse) => { if (isActionCurrent()) void this.copyVerse(verse); },
+				onExpand: (verse) => { if (isActionCurrent()) void this.expandToChapter(verse); },
 				isRecentlyPasted: (verse) => this.plugin.isRecentlyInserted(verseKey(verse)),
 			},
 			this.selectedIndex
@@ -544,13 +598,14 @@ export class BibleSearchModal extends Modal {
 				text: this.isLoadingMore ? 'Loading…' : 'Load more results',
 			});
 			loadMoreButton.disabled = this.isLoadingMore;
-			loadMoreButton.addEventListener('click', () => void this.loadMoreResults());
+			loadMoreButton.addEventListener('click', () => { if (isActionCurrent()) void this.loadMoreResults(); });
 		}
 	}
 
 	/** Append the next keyword result page without discarding current selections. */
 	private async loadMoreResults() {
-		if (this.isLoadingMore || !this.currentResultsTruncated) return;
+		if (!this.hasCurrentResults() || this.isLoadingMore || !this.currentResultsTruncated) return;
+		const requestId = this.requestId;
 		const query = this.searchQuery;
 		const priorCount = this.currentResults.length;
 		this.isLoadingMore = true;
@@ -563,20 +618,25 @@ export class BibleSearchModal extends Modal {
 				engine.getDb('KJV'),
 				engine.getDb('RST'),
 				this.plugin.settings.showParallelByDefault,
-				priorCount
+				priorCount,
+				{ translation: this.translationSelection }
 			);
-			if (query !== this.searchQuery) return;
+			if (!this.isCurrent(requestId) || !this.hasCurrentResults()) return;
 			this.currentResults = this.currentResults.concat(result.results);
 			this.parallelResults = this.parallelResults
 				? this.parallelResults.concat(result.parallelResults ?? [])
 				: result.parallelResults;
 			this.currentResultsTruncated = result.isTruncated ?? false;
 		} catch (error) {
-			console.error('Failed to load more search results:', error);
-			new Notice('Failed to load more results');
+			if (this.isCurrent(requestId)) {
+				console.error('Failed to load more search results:', error);
+				new Notice('Failed to load more results');
+			}
 		} finally {
-			this.isLoadingMore = false;
-			if (query === this.searchQuery) this.renderResults();
+			if (this.isCurrent(requestId)) {
+				this.isLoadingMore = false;
+				this.renderResults();
+			}
 		}
 	}
 
@@ -618,6 +678,7 @@ export class BibleSearchModal extends Modal {
 	 * Toggle a verse's selected state in multi-select mode
 	 */
 	private handleToggleSelect(verse: Verse) {
+		if (!this.hasCurrentResults()) return;
 		const key = verseKey(verse);
 		if (this.selectedVerseKeys.has(key)) {
 			this.selectedVerseKeys.delete(key);
@@ -656,6 +717,7 @@ export class BibleSearchModal extends Modal {
 	 * Insert all selected verses into the active editor, each on its own line
 	 */
 	private insertSelectedVerses() {
+		if (!this.hasCurrentResults()) return;
 		const verses = this.getOrderedSelectedVerses();
 		if (verses.length === 0) {
 			return;
@@ -682,11 +744,21 @@ export class BibleSearchModal extends Modal {
 	}
 
 	onClose(): void {
+		this.closed = true;
+		++this.requestId;
+		if (this.searchDebounceTimer !== null) {
+			window.clearTimeout(this.searchDebounceTimer);
+			this.searchDebounceTimer = null;
+		}
+		this.currentSearchAbortController?.abort();
+		this.currentSearchAbortController = null;
+		this.clearResultData();
 		// Remember whatever is in the search box so the next time the modal
 		// opens it's pre-filled (empty if the user cleared it before closing)
 		this.plugin.setLastSearchQuery(this.searchInput.value);
 
 		const { contentEl } = this;
 		contentEl.empty();
+		this.onClosed?.();
 	}
 }

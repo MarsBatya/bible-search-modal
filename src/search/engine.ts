@@ -1,4 +1,4 @@
-import { SearchResult, DatabaseInstance, Verse } from '../types';
+import { SearchResult, DatabaseInstance, Verse, TranslationSelection } from '../types';
 import { detectLanguage } from '../utils/language';
 import { parseReference, splitKeywords } from './parser';
 import { convertVersification } from '../utils/versification';
@@ -44,6 +44,22 @@ class SearchCache {
 }
 
 const searchCache = new SearchCache();
+const databaseIds = new WeakMap<DatabaseInstance, number>();
+let nextDatabaseId = 1;
+
+function databaseKey(instance: DatabaseInstance | undefined): string {
+	if (!instance?.isLoaded) return 'unavailable';
+	let id = databaseIds.get(instance);
+	if (id === undefined) {
+		id = nextDatabaseId++;
+		databaseIds.set(instance, id);
+	}
+	return String(id);
+}
+
+export interface SearchOptions {
+	translation?: TranslationSelection;
+}
 
 /**
  * Perform search on a query
@@ -53,7 +69,8 @@ export async function search(
 	kjvDb: DatabaseInstance | undefined,
 	rstDb: DatabaseInstance | undefined,
 	showParallel: boolean = false,
-	offset: number = 0
+	offset: number = 0,
+	options: SearchOptions = {}
 ): Promise<SearchResult> {
 	if (!query || !query.trim()) {
 		throw new Error('Search query cannot be empty');
@@ -62,7 +79,11 @@ export async function search(
 	const trimmedQuery = query.trim();
 
 	// Check cache
-	const cacheKey = `${trimmedQuery}|${showParallel}|${offset}`;
+	const selection = options.translation ?? 'Auto';
+	const cacheKey = JSON.stringify([
+		trimmedQuery, selection, showParallel, offset,
+		databaseKey(kjvDb), databaseKey(rstDb),
+	]);
 	const cached = searchCache.get(cacheKey);
 	if (cached) {
 		return cached;
@@ -72,10 +93,10 @@ export async function search(
 	const language = detectLanguage(trimmedQuery);
 
 	// Select database - try the detected language first, then fallback to the other
-	let selectedDb = language === 'KJV' ? kjvDb : rstDb;
+	let selectedDb = (selection === 'Auto' ? language : selection) === 'KJV' ? kjvDb : rstDb;
 
 	// If the selected database is not loaded, try the other one
-	if (!selectedDb || !selectedDb.isLoaded) {
+	if ((!selectedDb || !selectedDb.isLoaded) && selection === 'Auto') {
 		const otherDb = language === 'KJV' ? rstDb : kjvDb;
 		if (otherDb && otherDb.isLoaded) {
 			console.warn(
@@ -87,6 +108,9 @@ export async function search(
 				`No Bible database loaded. Please download KJV and/or RST databases in settings.`
 			);
 		}
+	}
+	if (!selectedDb?.isLoaded) {
+		throw new Error(`${selection} database is not available. Configure it in settings.`);
 	}
 
 	let result: SearchResult;

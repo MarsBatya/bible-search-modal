@@ -155,12 +155,36 @@ describe('Search Engine', () => {
 	});
 
 	describe('caching', () => {
-		it('should serve an identical repeated query from cache without touching the databases', async () => {
+		it('should serve an identical repeated query for the same database instances', async () => {
 			const first = await search('John 3:102', kjvDb, rstDb, false);
-			// Same query + same showParallel flag => same cache key.
-			// Passing undefined DBs proves the second call never re-queried.
-			const second = await search('John 3:102', undefined, undefined, false);
-			expect(second).toEqual(first);
+			const second = await search('John 3:102', kjvDb, rstDb, false);
+			expect(second).toBe(first);
+			await expect(search('John 3:102', undefined, undefined, false)).rejects.toThrow('No Bible database loaded');
+		});
+
+		it('invalidates fallback results when the detected database becomes available', async () => {
+			const fallback = await search('John 3:103', undefined, rstDb, false);
+			const primary = await search('John 3:103', kjvDb, rstDb, false);
+			expect(fallback.sourceDb).toBe('RST');
+			expect(primary.sourceDb).toBe('KJV');
+		});
+
+		it('keeps explicit translation selection separate from Auto', async () => {
+			const auto = await search('John 3:16', kjvDb, rstDb, false);
+			const explicit = await search('John 3:16', kjvDb, rstDb, false, 0, { translation: 'RST' });
+			expect(auto.sourceDb).toBe('KJV');
+			expect(explicit.sourceDb).toBe('RST');
+		});
+
+		it('does not reuse results after a database instance is replaced', async () => {
+			const replacement = await loadTestDatabase(getDbPath('RST'), 'RST');
+			try {
+				const original = await search('John 3:104', kjvDb, rstDb, true);
+				const afterReplacement = await search('John 3:104', kjvDb, replacement, true);
+				expect(afterReplacement).not.toBe(original);
+			} finally {
+				closeDatabase(replacement);
+			}
 		});
 
 		it('should treat different showParallel flags as different cache entries', async () => {

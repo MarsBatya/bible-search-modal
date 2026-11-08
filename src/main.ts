@@ -11,6 +11,9 @@ import { BibleSearchModal } from './ui/modal';
 export default class BibleSearchPlugin extends Plugin {
 	settings!: BibleSearchSettings;
 	private dbEngine!: DatabaseEngine;
+	private backgroundWarmTimer: number | null = null;
+	private unloaded = false;
+	private openModals = new Set<BibleSearchModal>();
 
 	// Remembers the last search query for the session, so reopening the
 	// search modal can pre-fill it (e.g. to insert another verse from the
@@ -67,10 +70,23 @@ export default class BibleSearchPlugin extends Plugin {
 		// its startup and layout rendering, so it never blocks or contributes
 		// to plugin startup time.
 		this.app.workspace.onLayoutReady(() => {
-			window.setTimeout(() => {
-				void this.preloadDatabases();
+			if (this.unloaded) return;
+			this.backgroundWarmTimer = window.setTimeout(() => {
+				this.backgroundWarmTimer = null;
+				if (!this.unloaded) void this.preloadDatabases();
 			}, 3000);
 		});
+	}
+
+	onunload(): void {
+		this.unloaded = true;
+		for (const modal of this.openModals) modal.close();
+		this.openModals.clear();
+		if (this.backgroundWarmTimer !== null) {
+			window.clearTimeout(this.backgroundWarmTimer);
+			this.backgroundWarmTimer = null;
+		}
+		this.dbEngine?.dispose();
 	}
 
 	async loadSettings(): Promise<void> {
@@ -103,14 +119,16 @@ export default class BibleSearchPlugin extends Plugin {
 	 * Open Bible search modal
 	 */
 	private openBibleSearch() {
-		new BibleSearchModal(this.app, this).open();
+		this.openBibleSearchWithQuery('');
 	}
 
 	/**
 	 * Open Bible search with initial query
 	 */
 	private openBibleSearchWithQuery(query: string) {
-		const modal = new BibleSearchModal(this.app, this);
+		if (this.unloaded) return;
+		const modal = new BibleSearchModal(this.app, this, () => this.openModals.delete(modal));
+		this.openModals.add(modal);
 		modal.setInitialQuery(query);
 		modal.open();
 	}
@@ -132,6 +150,7 @@ export default class BibleSearchPlugin extends Plugin {
 			dbEngine.ensureDb('KJV', 5000).catch(() => null),
 			dbEngine.ensureDb('RST', 5000).catch(() => null),
 		]);
+		if (this.unloaded) return;
 		const loadedDbs: DatabaseInstance[] = [kjv, rst].filter(
 			(db): db is DatabaseInstance => !!db?.isLoaded
 		);

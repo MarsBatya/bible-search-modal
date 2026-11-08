@@ -14,8 +14,11 @@ export interface Verse {
 	chapter: number;
 	verse: number;
 	text: string;
-	translation: 'KJV' | 'RST';
+	translation: Translation;
 }
+
+export type Translation = 'KJV' | 'RST';
+export type TranslationSelection = Translation | 'Auto';
 
 /**
  * Parsed Bible reference (e.g., "John 3:16" or "Gen 1:4-5")
@@ -34,7 +37,7 @@ export interface ParsedReference {
  */
 export interface SearchResult {
 	results: Verse[];
-	sourceDb: 'KJV' | 'RST';
+	sourceDb: Translation;
 	// Index-aligned with `results`: parallelResults[i] is the counterpart of
 	// results[i], or undefined if none was found (e.g. no verse exists at
 	// that position after versification mapping). Not a separately-collected
@@ -64,7 +67,7 @@ export interface BookMapping {
  */
 export interface DatabaseInstance {
 	db: initSqlJs.Database;
-	translation: 'KJV' | 'RST';
+	translation: Translation;
 	isLoaded: boolean;
 	// From the module's `info` table (`russian_numbering`): true when this
 	// translation numbers Psalms/Job/Song of Solomon chapters and verses
