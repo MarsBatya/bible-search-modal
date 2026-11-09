@@ -188,4 +188,29 @@ describe('results rendering DOM', () => {
 			block: 'nearest',
 		});
 	});
+
+	it('can mark either the primary or parallel verse as the active result', () => {
+		const root = container();
+		const verses = [verse(16), verse(17)];
+		renderResultsList(
+			root,
+			verses,
+			options({ parallelResults: [verse(16, 'RST'), verse(17, 'RST')] }),
+			-1
+		);
+
+		updateSelection(root, 0, 'main');
+		const main = root.querySelector<HTMLElement>('[data-block-index="0"][data-block-column="main"]');
+		const parallel = root.querySelector<HTMLElement>(
+			'[data-block-index="0"][data-block-column="parallel"]'
+		);
+		expect(main?.getAttribute('aria-selected')).toBe('true');
+		expect(parallel?.getAttribute('aria-selected')).toBe('false');
+
+		updateSelection(root, 0, 'parallel');
+		expect(main?.getAttribute('aria-selected')).toBe('false');
+		expect(parallel?.getAttribute('aria-selected')).toBe('true');
+		expect(parallel?.getAttribute('role')).toBe('gridcell');
+		expect(parallel?.id).toBe('bible-search-result-0-parallel');
+	});
 });

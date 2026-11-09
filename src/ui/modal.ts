@@ -1,11 +1,17 @@
 import { App, Modal, Notice, Editor, EditorPosition } from 'obsidian';
 import type BibleSearchPlugin from '../main';
-import { Verse, Translation, TranslationSelection } from '../types';
-import { search } from '../search/engine';
+import {
+	Verse,
+	Translation,
+	TranslationSelection,
+	ChapterReference,
+} from '../types';
+import { getParallelVerses, search } from '../search/engine';
 import { coordinateSearch, MissingDatabaseError } from '../search/coordinator';
 import { formatVerse, formatVerses } from '../utils/formatter';
 import { splitKeywords } from '../search/parser';
 import { verseKey } from '../utils/verse-key';
+import { chapterReferenceForVerse, formatChapterQuery } from '../utils/verse-reference';
 import {
 	createSearchInput,
 	createMultiSelectToggle,
@@ -15,13 +21,36 @@ import {
 	attachParallelResults,
 	updateSelection,
 	updateVerseSelection,
+	resultBlockId,
 	showError,
 	showNoResults,
 } from './results-view';
-import type { ResultsViewOptions } from './results-view';
+import type { ResultsViewOptions, ActiveColumn } from './results-view';
+import { createTranslationControls } from './translation-controls';
+import type { TranslationControls } from './translation-controls';
 import { renderDatabaseSetupPanel } from './database-setup';
 import type { DatabaseSetupPanel } from './database-setup';
 import type { DatabaseStatus } from '../database/status';
+
+/**
+ * Everything needed to return from chapter navigation to the keyword/address
+ * results the user was browsing, including pagination and selection state.
+ */
+interface ResultsSnapshot {
+	query: string;
+	translationSelection: TranslationSelection;
+	showParallel: boolean;
+	resultSource: Translation | undefined;
+	results: Verse[];
+	parallelResults: (Verse | undefined)[] | undefined;
+	truncated: boolean;
+	keywords: string[];
+	selectedIndex: number;
+	activeColumn: ActiveColumn;
+	selectedVerseKeys: string[];
+	multiSelectMode: boolean;
+	scrollTop: number;
+}
 
 /**
  * Bible Search Modal - Main UI component for searching and inserting verses
@@ -41,12 +70,22 @@ export class BibleSearchModal extends Modal {
 	private parallelResults: (Verse | undefined)[] | undefined;
 	private currentKeywords: string[] = [];
 	private selectedIndex: number = -1;
+	private activeColumn: ActiveColumn = 'main';
 	private searchQuery: string = '';
 	private translationSelection: TranslationSelection = 'Auto';
+	private showParallel = true;
 	private requestId = 0;
 	private displayedRequestId = -1;
 	private closed = false;
 	private initialQuery: string = '';
+
+	// Translation/parallel controls and the state needed to return from a
+	// chapter lookup to the results the user opened it from.
+	private translationControls: TranslationControls | null = null;
+	private navigationContainer!: HTMLElement;
+	private backToResultsButton: HTMLButtonElement | null = null;
+	private navigation: { reference: ChapterReference; snapshot: ResultsSnapshot } | null = null;
+	private pendingReference: ChapterReference | undefined = undefined;
 
 	// The editor and selection/cursor to insert into, captured when the
 	// modal opens rather than looked up fresh at insert time. On mobile the
@@ -97,15 +136,51 @@ export class BibleSearchModal extends Modal {
 		this.initialQuery = query;
 	}
 
-	/** Used by translation controls when they are added to the modal. */
+	/** Used by translation controls and external callers. */
 	setTranslationSelection(selection: TranslationSelection): void {
 		if (this.translationSelection === selection || this.closed) return;
+
+		// While browsing a chapter, keep the structured reference (and the
+		// back target) intact. Auto has no structured equivalent, so keep
+		// the chapter pinned to its source translation.
+		const reference = this.navigation?.reference;
+		if (reference) {
+			if (selection === 'Auto') {
+				this.translationSelection = reference.translation;
+				this.plugin.setTranslationSelection(reference.translation);
+				this.translationControls?.setSelection(reference.translation);
+				return;
+			}
+			this.translationSelection = selection;
+			this.plugin.setTranslationSelection(selection);
+			this.translationControls?.setSelection(selection);
+			const next = { ...reference, translation: selection };
+			this.navigation!.reference = next;
+			this.handleSearch(formatChapterQuery(next), true, next);
+			return;
+		}
+
 		this.translationSelection = selection;
+		this.plugin.setTranslationSelection(selection);
+		this.translationControls?.setSelection(selection);
 		this.handleSearch(this.searchInput.value, true);
+	}
+
+	/** Change whether counterpart verses are shown, re-querying immediately. */
+	setShowParallel(show: boolean): void {
+		if (this.showParallel === show || this.closed) return;
+		this.showParallel = show;
+		this.plugin.setShowParallel(show);
+		this.translationControls?.setShowParallel(show);
+		if (this.searchQuery.trim()) {
+			this.handleSearch(this.searchInput.value, true, this.navigation?.reference);
+		}
 	}
 
 	onOpen(): void {
 		this.closed = false;
+		this.translationSelection = this.plugin.getTranslationSelection();
+		this.showParallel = this.plugin.getShowParallel();
 		// Capture the target editor and its selection/cursor now, before the
 		// modal takes over focus - see the comment on targetEditor above.
 		const activeEditor = this.app.workspace.activeEditor?.editor ?? null;
@@ -130,13 +205,39 @@ export class BibleSearchModal extends Modal {
 			this.toggleMultiSelectMode()
 		);
 
+		// Translation source + parallel display controls, session-only.
+		this.translationControls = createTranslationControls(contentEl, {
+			selection: this.translationSelection,
+			showParallel: this.showParallel,
+			onSelectionChange: (selection) => this.setTranslationSelection(selection),
+			onParallelChange: (show) => this.setShowParallel(show),
+		});
+
+		// "Back to results" appears only after opening a chapter from results.
+		this.navigationContainer = contentEl.createDiv({ cls: 'bible-search-navigation' });
+
 		// Multi-select bar (selection count + Insert/Cancel), hidden until enabled
 		this.multiSelectBar = contentEl.createDiv({ cls: 'bible-multiselect-bar is-hidden' });
 
 		// Create results container
-		this.resultsContainer = contentEl.createDiv({ cls: 'results-container' });
-		this.statusContainer = contentEl.createDiv({ cls: 'search-status' });
-		this.sourceContainer = contentEl.createDiv({ cls: 'search-source' });
+		this.resultsContainer = contentEl.createDiv({
+			cls: 'results-container',
+			attr: {
+				id: 'bible-search-results',
+				role: 'grid',
+				'aria-label': 'Bible search results',
+			},
+		});
+		this.statusContainer = contentEl.createDiv({
+			cls: 'search-status',
+			attr: { role: 'status', 'aria-live': 'polite' },
+		});
+		this.sourceContainer = contentEl.createDiv({
+			cls: 'search-source',
+			attr: { role: 'status', 'aria-live': 'polite' },
+		});
+		this.searchInput.setAttribute('aria-controls', 'bible-search-results');
+		this.updateNavigationControls();
 
 		// Focus input
 		this.searchInput.focus();
@@ -171,13 +272,23 @@ export class BibleSearchModal extends Modal {
 	 * Handle search input with debouncing
 	 * Waits for user to stop typing before performing expensive database search
 	 */
-	private handleSearch(query: string, immediate = false): void {
+	private handleSearch(
+		query: string,
+		immediate = false,
+		reference?: ChapterReference
+	): void {
 		const requestId = ++this.requestId;
 		this.searchQuery = query;
+		this.pendingReference = reference;
 		this.selectedIndex = -1;
+		this.activeColumn = 'main';
 		this.clearResultData();
 		this.currentSearchAbortController?.abort();
 		this.clearTimers();
+
+		// Any ordinary search leaves chapter navigation; a structured
+		// chapter lookup replaces the snapshot only when a new one was taken.
+		if (!reference) this.clearNavigation();
 
 		// Clear previous debounce timer
 		if (!query.trim()) {
@@ -198,12 +309,12 @@ export class BibleSearchModal extends Modal {
 		}, 150);
 
 		if (immediate) {
-			void this.performSearch(query, requestId);
+			void this.performSearch(query, requestId, reference);
 			return;
 		}
 		this.searchDebounceTimer = window.setTimeout(() => {
 			this.searchDebounceTimer = null;
-			void this.performSearch(query, requestId);
+			void this.performSearch(query, requestId, reference);
 		}, this.DEBOUNCE_DELAY);
 	}
 
@@ -241,13 +352,139 @@ export class BibleSearchModal extends Modal {
 		this.currentKeywords = [];
 		this.isLoadingMore = false;
 		this.selectedVerseKeys.clear();
+		this.searchInput?.removeAttribute('aria-activedescendant');
 		this.updateMultiSelectBar();
+	}
+
+	/** Capture everything needed to return from a chapter lookup. */
+	private captureSnapshot(): ResultsSnapshot {
+		return {
+			query: this.searchQuery,
+			translationSelection: this.translationSelection,
+			showParallel: this.showParallel,
+			resultSource: this.resultSource,
+			results: [...this.currentResults],
+			parallelResults: this.parallelResults ? [...this.parallelResults] : undefined,
+			truncated: this.currentResultsTruncated,
+			keywords: [...this.currentKeywords],
+			selectedIndex: this.selectedIndex,
+			activeColumn: this.activeColumn,
+			selectedVerseKeys: [...this.selectedVerseKeys],
+			multiSelectMode: this.multiSelectMode,
+			scrollTop: this.resultsContainer.scrollTop,
+		};
+	}
+
+	/** Drop chapter-navigation history (ordinary searches start a new trail). */
+	private clearNavigation(): void {
+		if (!this.navigation && this.backToResultsButton === null) return;
+		this.navigation = null;
+		this.updateNavigationControls();
+	}
+
+	/** Show/hide the "Back to results" control for chapter navigation. */
+	private updateNavigationControls(): void {
+		if (!this.navigationContainer) return;
+		if (!this.navigation) {
+			this.navigationContainer.empty();
+			this.navigationContainer.addClass('is-hidden');
+			this.backToResultsButton = null;
+			return;
+		}
+
+		this.navigationContainer.removeClass('is-hidden');
+		if (!this.backToResultsButton) {
+			this.backToResultsButton = this.navigationContainer.createEl('button', {
+				cls: 'bible-search-back',
+				text: 'Back to results',
+				attr: { type: 'button', 'aria-label': 'Back to search results' },
+			});
+			this.backToResultsButton.addEventListener('click', () => {
+				this.restoreNavigationSnapshot();
+			});
+		}
+	}
+
+	/**
+	 * Restore the query, controls, loaded pages, selections, active row, and
+	 * scroll position captured before opening a chapter. This renders the
+	 * saved pages directly rather than re-running the search, so selections
+	 * and pagination survive.
+	 */
+	private restoreNavigationSnapshot(): void {
+		const navigation = this.navigation;
+		if (!navigation || this.closed) return;
+
+		const { snapshot } = navigation;
+		const requestId = ++this.requestId;
+		this.clearTimers();
+		this.currentSearchAbortController?.abort();
+		this.currentSearchAbortController = null;
+		this.pendingReference = undefined;
+		this.navigation = null;
+		this.databaseSetupPanel?.destroy();
+		this.databaseSetupPanel = null;
+
+		this.searchInput.value = snapshot.query;
+		this.searchQuery = snapshot.query;
+		this.translationSelection = snapshot.translationSelection;
+		this.plugin.setTranslationSelection(snapshot.translationSelection);
+		this.translationControls?.setSelection(snapshot.translationSelection);
+		this.showParallel = snapshot.showParallel;
+		this.plugin.setShowParallel(snapshot.showParallel);
+		this.translationControls?.setShowParallel(snapshot.showParallel);
+
+		this.resultSource = snapshot.resultSource;
+		this.currentResults = snapshot.results;
+		this.parallelResults = snapshot.parallelResults;
+		this.currentResultsTruncated = snapshot.truncated;
+		this.currentKeywords = snapshot.keywords;
+		this.selectedVerseKeys = new Set(snapshot.selectedVerseKeys);
+		this.multiSelectMode = snapshot.multiSelectMode;
+		this.multiSelectToggleButton.classList.toggle('is-active', this.multiSelectMode);
+		this.multiSelectToggleButton.setAttribute('aria-pressed', String(this.multiSelectMode));
+		this.selectedIndex = snapshot.selectedIndex;
+		this.activeColumn = snapshot.activeColumn;
+		this.displayedRequestId = requestId;
+
+		this.statusContainer.empty();
+		this.sourceContainer.setText(
+			snapshot.resultSource ? `Showing ${snapshot.resultSource}` : ''
+		);
+		this.resultsContainer.removeAttribute('aria-busy');
+		this.renderResults();
+		this.updateMultiSelectBar();
+		this.updateResultsSelection();
+		this.resultsContainer.scrollTop = snapshot.scrollTop;
+		this.searchInput.focus();
+		this.updateNavigationControls();
+		// Opening a chapter cancels enrichment of the saved results. Resume
+		// any missing counterparts without re-querying or losing loaded pages.
+		if (this.showParallel && this.resultSource
+			&& this.currentResults.some((_verse, index) => !this.parallelResults?.[index])) {
+			void this.restoreParallelResults(requestId, this.resultSource);
+		}
+	}
+
+	private async restoreParallelResults(requestId: number, source: Translation): Promise<void> {
+		try {
+			const other = await this.plugin.getDbEngine().ensureDb(source === 'KJV' ? 'RST' : 'KJV', 5000);
+			if (!this.isCurrent(requestId) || !other?.isLoaded) return;
+			this.parallelResults = getParallelVerses(this.currentResults, other);
+			this.attachParallelResults();
+		} catch (error) {
+			console.debug('Parallel lookup failed:', error);
+		}
 	}
 
 	/**
 	 * Perform the actual search (after debounce)
 	 */
-	private async performSearch(query: string, requestId: number) {
+	private async performSearch(
+		query: string,
+		requestId: number,
+		reference?: ChapterReference
+	) {
 		if (!this.isCurrent(requestId)) return;
 		let primaryDone!: () => void;
 		this.currentPrimaryPromise = new Promise<void>((resolve) => { primaryDone = resolve; });
@@ -257,7 +494,7 @@ export class BibleSearchModal extends Modal {
 		const isCurrent = () => !controller.signal.aborted && this.isCurrent(requestId);
 		try {
 			await coordinateSearch(query, this.translationSelection,
-				this.plugin.settings.showParallelByDefault, this.plugin.getDbEngine(), isCurrent,
+				this.showParallel, this.plugin.getDbEngine(), isCurrent,
 				(result) => {
 					this.currentResults = result.results;
 					this.resultSource = result.sourceDb;
@@ -267,6 +504,7 @@ export class BibleSearchModal extends Modal {
 					this.currentKeywords = result.isAddressSearch ? [] : splitKeywords(query);
 					this.sourceContainer.setText(`Showing ${result.sourceDb}`);
 					this.finishPending(requestId);
+					this.updateNavigationControls();
 					primaryDone();
 					if (result.results.length === 0) {
 						showNoResults(this.resultsContainer, query);
@@ -278,7 +516,7 @@ export class BibleSearchModal extends Modal {
 					if (!this.hasCurrentResults()) return;
 					this.parallelResults = result.parallelResults;
 					this.attachParallelResults();
-				}, () => this.currentResults);
+				}, () => this.currentResults, { reference });
 		} catch (error) {
 			if (isCurrent()) {
 				this.finishPending(requestId);
@@ -333,7 +571,7 @@ export class BibleSearchModal extends Modal {
 
 	private retrySearchAfterSetup(): void {
 		if (this.closed || !this.searchQuery.trim()) return;
-		this.handleSearch(this.searchQuery, true);
+		this.handleSearch(this.searchQuery, true, this.navigation?.reference);
 	}
 
 	/**
@@ -348,7 +586,10 @@ export class BibleSearchModal extends Modal {
 		}
 
 		this.searchQuery = '';
+		this.pendingReference = undefined;
 		this.selectedIndex = -1;
+		this.activeColumn = 'main';
+		this.clearNavigation();
 		this.clearResultData();
 		this.resultsContainer.empty();
 		this.statusContainer.empty();
@@ -365,7 +606,7 @@ export class BibleSearchModal extends Modal {
 			event.preventDefault();
 			window.clearTimeout(this.searchDebounceTimer);
 			this.searchDebounceTimer = null;
-			void this.performSearch(this.searchQuery, this.requestId);
+			void this.performSearch(this.searchQuery, this.requestId, this.pendingReference);
 			return;
 		}
 		if (!this.hasCurrentResults() || this.currentResults.length === 0) {
@@ -383,19 +624,18 @@ export class BibleSearchModal extends Modal {
 				this.selectPrevious();
 				break;
 
-			case 'Enter':
+			case 'Enter': {
 				event.preventDefault();
-				if (this.currentResults.length > 0) {
-					const verse = this.currentResults[this.selectedIndex >= 0 ? this.selectedIndex : 0];
-					if (verse) {
-						if (this.multiSelectMode) {
-							this.handleToggleSelect(verse);
-						} else {
-							this.insertVerse(verse);
-						}
+				const verse = this.getActiveVerse();
+				if (verse) {
+					if (this.multiSelectMode) {
+						this.handleToggleSelect(verse);
+					} else {
+						this.insertVerse(verse);
 					}
 				}
 				break;
+			}
 
 			case 'Escape':
 				event.preventDefault();
@@ -405,34 +645,76 @@ export class BibleSearchModal extends Modal {
 	}
 
 	/**
-	 * Select next result
+	 * Flattened primary/parallel verse order used by arrow-key navigation.
+	 * Counterpart slots without a verse are skipped.
+	 */
+	private navigationSteps(): Array<{ row: number; column: ActiveColumn }> {
+		const steps: Array<{ row: number; column: ActiveColumn }> = [];
+		this.currentResults.forEach((_verse, row) => {
+			steps.push({ row, column: 'main' });
+			if (this.parallelResults?.[row]) steps.push({ row, column: 'parallel' });
+		});
+		return steps;
+	}
+
+	/** The verse that Enter acts on (defaults to the first primary result). */
+	private getActiveVerse(): Verse | undefined {
+		if (this.currentResults.length === 0) return undefined;
+		const row = this.selectedIndex >= 0 ? this.selectedIndex : 0;
+		if (this.activeColumn === 'parallel') {
+			const parallel = this.parallelResults?.[row];
+			if (parallel) return parallel;
+		}
+		return this.currentResults[row];
+	}
+
+	/**
+	 * Select next result, moving through the primary verse and its parallel
+	 * counterpart before advancing to the next row.
 	 */
 	private selectNext() {
-		if (this.selectedIndex < this.currentResults.length - 1) {
-			this.selectedIndex++;
-		} else {
-			this.selectedIndex = 0; // Wrap around
-		}
+		const steps = this.navigationSteps();
+		if (steps.length === 0) return;
+		const current = steps.findIndex(
+			(step) => step.row === this.selectedIndex && step.column === this.activeColumn
+		);
+		const next = current < 0 ? 0 : (current + 1) % steps.length;
+		const step = steps[next]!;
+		this.selectedIndex = step.row;
+		this.activeColumn = step.column;
 		this.updateResultsSelection();
 	}
 
 	/**
-	 * Select previous result
+	 * Select the previous result, wrapping through both translation columns.
 	 */
 	private selectPrevious() {
-		if (this.selectedIndex > 0) {
-			this.selectedIndex--;
-		} else {
-			this.selectedIndex = this.currentResults.length - 1; // Wrap around
-		}
+		const steps = this.navigationSteps();
+		if (steps.length === 0) return;
+		const current = steps.findIndex(
+			(step) => step.row === this.selectedIndex && step.column === this.activeColumn
+		);
+		const previous = current < 0 ? steps.length - 1 : (current - 1 + steps.length) % steps.length;
+		const step = steps[previous]!;
+		this.selectedIndex = step.row;
+		this.activeColumn = step.column;
 		this.updateResultsSelection();
 	}
 
 	/**
-	 * Update the visual selection
+	 * Update the visual selection and expose the active block to assistive
+	 * technology through aria-activedescendant.
 	 */
 	private updateResultsSelection() {
-		updateSelection(this.resultsContainer, this.selectedIndex);
+		updateSelection(this.resultsContainer, this.selectedIndex, this.activeColumn);
+		if (this.selectedIndex >= 0) {
+			this.searchInput.setAttribute(
+				'aria-activedescendant',
+				resultBlockId(this.selectedIndex, this.activeColumn)
+			);
+		} else {
+			this.searchInput.removeAttribute('aria-activedescendant');
+		}
 	}
 
 	/**
@@ -584,9 +866,27 @@ export class BibleSearchModal extends Modal {
 	 */
 	private async expandToChapter(verse: Verse) {
 		if (!this.hasCurrentResults()) return;
-		const query = `${verse.book_name_short} ${verse.chapter}`;
+
+		// Capture the browsing state once. Expanding again from inside a
+		// chapter keeps the original results as the back target.
+		const reference = chapterReferenceForVerse(verse);
+		if (!this.navigation) {
+			this.navigation = { reference, snapshot: this.captureSnapshot() };
+		} else {
+			this.navigation.reference = reference;
+		}
+		this.updateNavigationControls();
+
+		// Pin the chapter to the translation the verse came from, without
+		// letting the generic "translation changed" re-search run first.
+		this.translationSelection = reference.translation;
+		this.plugin.setTranslationSelection(reference.translation);
+		this.translationControls?.setSelection(reference.translation);
+
+		const query = formatChapterQuery(reference);
 		this.searchInput.value = query;
-		this.handleSearch(query, true);
+		this.searchInput.focus();
+		this.handleSearch(query, true, reference);
 		const requestId = this.requestId;
 		// The immediate search is already running; wait for its primary result.
 		await this.currentPrimaryPromise;
@@ -601,8 +901,10 @@ export class BibleSearchModal extends Modal {
 		);
 		if (index !== -1) {
 			this.selectedIndex = index;
+			this.activeColumn = 'main';
 			this.updateResultsSelection();
 		}
+		this.updateNavigationControls();
 	}
 
 	/**
@@ -640,7 +942,8 @@ export class BibleSearchModal extends Modal {
 			this.resultsContainer,
 			this.currentResults,
 			this.createResultsOptions(),
-			this.selectedIndex
+			this.selectedIndex,
+			this.activeColumn
 		);
 
 		this.updateTruncationControls();
@@ -715,7 +1018,7 @@ export class BibleSearchModal extends Modal {
 				query,
 				engine.getDb('KJV'),
 				engine.getDb('RST'),
-				this.plugin.settings.showParallelByDefault,
+				this.showParallel,
 				priorCount,
 				{ translation: this.resultSource }
 			);
@@ -751,6 +1054,7 @@ export class BibleSearchModal extends Modal {
 			this.selectedVerseKeys.clear();
 		}
 		this.multiSelectToggleButton.classList.toggle('is-active', this.multiSelectMode);
+		this.multiSelectToggleButton.setAttribute('aria-pressed', String(this.multiSelectMode));
 		this.renderResults();
 		this.updateMultiSelectBar();
 	}
@@ -853,6 +1157,8 @@ export class BibleSearchModal extends Modal {
 		this.clearTimers();
 		this.currentSearchAbortController?.abort();
 		this.currentSearchAbortController = null;
+		this.pendingReference = undefined;
+		this.navigation = null;
 		this.clearResultData();
 		// Remember whatever is in the search box so the next time the modal
 		// opens it's pre-filled (empty if the user cleared it before closing)

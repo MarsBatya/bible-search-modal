@@ -16,6 +16,7 @@ class FakeElement {
 	addClass = vi.fn();
 	removeClass = vi.fn();
 	createDiv(): FakeElement { return new FakeElement(); }
+	createSpan(): FakeElement { return new FakeElement(); }
 	createEl(): FakeElement { return new FakeElement(); }
 	querySelector = vi.fn(() => null);
 	querySelectorAll = vi.fn(() => []);
@@ -78,6 +79,10 @@ function createModal(lastQuery = '', overrides: Record<string, unknown> = {}): B
 		getDbEngine: () => ({ ensureDb: vi.fn().mockResolvedValue({ isLoaded: true }), getDb: vi.fn() }),
 		getLastSearchQuery: () => lastQuery,
 		setLastSearchQuery: vi.fn(),
+		getTranslationSelection: () => 'Auto',
+		setTranslationSelection: vi.fn(),
+		getShowParallel: () => false,
+		setShowParallel: vi.fn(),
 		isRecentlyInserted: () => false,
 		getDatabaseStatus: () => ({ state: 'not-configured' }),
 		isDatabaseDownloadConfigured: () => false,

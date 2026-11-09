@@ -1,4 +1,11 @@
-import { SearchResult, DatabaseInstance, Verse, TranslationSelection } from '../types';
+import {
+	SearchResult,
+	DatabaseInstance,
+	Verse,
+	TranslationSelection,
+	ChapterReference,
+	ParsedReference,
+} from '../types';
 import { detectLanguage } from '../utils/language';
 import { parseReference, splitKeywords } from './parser';
 import { convertVersification } from '../utils/versification';
@@ -60,6 +67,20 @@ function databaseKey(instance: DatabaseInstance | undefined): string {
 
 export interface SearchOptions {
 	translation?: TranslationSelection;
+	/**
+	 * Structured chapter reference from a result row. When present the
+	 * address is resolved from its numeric book/chapter fields instead of
+	 * re-parsing the displayed query string.
+	 */
+	reference?: ChapterReference;
+}
+
+function referenceToParsed(reference: ChapterReference): ParsedReference {
+	return {
+		book_number: reference.book_number,
+		chapter: reference.chapter,
+		isRange: false,
+	};
 }
 
 /**
@@ -80,9 +101,11 @@ export async function search(
 	const trimmedQuery = query.trim();
 
 	// Check cache
-	const selection = options.translation ?? 'Auto';
+	const selection = options.reference?.translation ?? options.translation ?? 'Auto';
+	const reference = options.reference;
 	const cacheKey = JSON.stringify([
 		trimmedQuery, selection, showParallel, offset,
+		reference ? [reference.book_number, reference.chapter, reference.translation] : null,
 		databaseKey(kjvDb), databaseKey(rstDb),
 	]);
 	const cached = searchCache.get(cacheKey);
@@ -116,10 +139,19 @@ export async function search(
 
 	let result: SearchResult;
 
+	const parsedReference = reference ? referenceToParsed(reference) : parseReference(trimmedQuery);
+
 	// Determine if this is address search or keyword search
-	if (parseReference(trimmedQuery)) {
+	if (parsedReference) {
 		// Address search - always try both databases for parallel
-		result = addressSearch(trimmedQuery, selectedDb, rstDb, kjvDb, showParallel);
+		result = addressSearch(
+			trimmedQuery,
+			parsedReference,
+			selectedDb,
+			rstDb,
+			kjvDb,
+			showParallel,
+		);
 	} else {
 		// Keyword search - always try both databases for parallel
 		const keywords = splitKeywords(trimmedQuery);
@@ -186,13 +218,13 @@ export function getParallelVerses(verses: Verse[], otherDb: DatabaseInstance): (
  */
 function addressSearch(
 	query: string,
+	parsed: ParsedReference,
 	selectedDb: DatabaseInstance,
 	rstDb: DatabaseInstance | undefined,
 	kjvDb: DatabaseInstance | undefined,
 	showParallel: boolean
 ): SearchResult {
-	const parsed = parseReference(query);
-	if (!parsed || parsed.book_number === null) {
+	if (parsed.book_number === null || parsed.chapter === undefined) {
 		throw new Error('Invalid Bible reference');
 	}
 
@@ -205,7 +237,7 @@ function addressSearch(
 		const verses = getVerseRange(
 			selectedDb,
 			parsed.book_number,
-			parsed.chapter!,
+			parsed.chapter,
 			parsed.verseStart,
 			parsed.verseEnd
 		);
@@ -215,7 +247,7 @@ function addressSearch(
 		const verse = getVerse(
 			selectedDb,
 			parsed.book_number,
-			parsed.chapter!,
+			parsed.chapter,
 			parsed.verseStart
 		);
 		if (verse) {

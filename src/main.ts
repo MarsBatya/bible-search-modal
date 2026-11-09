@@ -12,7 +12,7 @@ import type { DatabaseStatus } from './database/status';
 import { formatVerse } from './utils/formatter';
 import { verseKey } from './utils/verse-key';
 import { RecentVerseTracker } from './utils/recent-verses';
-import { DatabaseInstance, Translation } from './types';
+import { DatabaseInstance, Translation, TranslationSelection } from './types';
 import { BibleSearchModal } from './ui/modal';
 
 export default class BibleSearchPlugin extends Plugin {
@@ -31,6 +31,12 @@ export default class BibleSearchPlugin extends Plugin {
 	// search modal can mark "you already pasted this one" - deliberately
 	// in-memory only, not saved to disk, and reset on reload/restart.
 	private recentlyInserted = new RecentVerseTracker(200);
+
+	// Session-only overrides made from the modal's translation controls.
+	// Not persisted: reopening Obsidian falls back to Auto and the saved
+	// parallel-display setting.
+	private sessionTranslationSelection: TranslationSelection = 'Auto';
+	private sessionShowParallel: boolean | null = null;
 
 	async onload(): Promise<void> {
 		// Load settings
@@ -286,6 +292,29 @@ export default class BibleSearchPlugin extends Plugin {
 	 */
 	getDbEngine(): DatabaseEngine {
 		return this.dbEngine;
+	}
+
+	/** Translation selected from the modal controls, for this session only. */
+	getTranslationSelection(): TranslationSelection {
+		return this.sessionTranslationSelection;
+	}
+
+	/** Remember the modal's translation override until Obsidian reloads. */
+	setTranslationSelection(selection: TranslationSelection): void {
+		this.sessionTranslationSelection = selection;
+	}
+
+	/**
+	 * Whether parallel verses are currently shown. The saved setting is the
+	 * initial default; a modal control change overrides it for the session.
+	 */
+	getShowParallel(): boolean {
+		return this.sessionShowParallel ?? this.settings.showParallelByDefault;
+	}
+
+	/** Remember the modal's parallel-display override for this session. */
+	setShowParallel(show: boolean): void {
+		this.sessionShowParallel = show;
 	}
 
 	/**

@@ -1,4 +1,11 @@
-import type { DatabaseInstance, SearchResult, Translation, TranslationSelection, Verse } from '../types';
+import type {
+	ChapterReference,
+	DatabaseInstance,
+	SearchResult,
+	Translation,
+	TranslationSelection,
+	Verse,
+} from '../types';
 import { detectLanguage } from '../utils/language';
 import { getParallelVerses, search } from './engine';
 
@@ -12,6 +19,11 @@ export class MissingDatabaseError extends Error {
 	}
 }
 
+export interface CoordinateSearchOptions {
+	/** Structured chapter reference; pins the source translation. */
+	reference?: ChapterReference;
+}
+
 /** Loads the preferred source first and publishes usable results before optional counterparts. */
 export async function coordinateSearch(
 	query: string,
@@ -22,12 +34,14 @@ export async function coordinateSearch(
 	onPrimary: (result: SearchResult) => void,
 	onParallel: (result: SearchResult) => void,
 	getCurrentResults?: () => Verse[],
+	options: CoordinateSearchOptions = {},
 ): Promise<void> {
-	const preferred = selection === 'Auto' ? detectLanguage(query) : selection;
+	const preferred = options.reference?.translation
+		?? (selection === 'Auto' ? detectLanguage(query) : selection);
 	let source: Translation = preferred;
 	let primary = await provider.ensureDb(preferred, 5000).catch(() => null);
 	if (!isCurrent()) return;
-	if (!primary?.isLoaded && selection === 'Auto') {
+	if (!primary?.isLoaded && selection === 'Auto' && !options.reference) {
 		source = preferred === 'KJV' ? 'RST' : 'KJV';
 		primary = await provider.ensureDb(source, 5000).catch(() => null);
 		if (!isCurrent()) return;
@@ -36,7 +50,10 @@ export async function coordinateSearch(
 
 	const kjv = source === 'KJV' ? primary : undefined;
 	const rst = source === 'RST' ? primary : undefined;
-	const primaryResult = await search(query, kjv, rst, false, 0, { translation: source });
+	const primaryResult = await search(query, kjv, rst, false, 0, {
+		translation: source,
+		reference: options.reference,
+	});
 	if (!isCurrent()) return;
 	onPrimary(primaryResult);
 	if (!showParallel || primaryResult.results.length === 0) return;

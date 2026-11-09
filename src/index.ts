@@ -15,6 +15,7 @@ export type {
 	BookMapping,
 	Translation,
 	TranslationSelection,
+	ChapterReference,
 } from './types';
 export type { DatabaseStatus, DatabaseStatusState } from './database/status';
 
@@ -32,6 +33,9 @@ export {
 
 // Language Detection (Latin -> KJV, Cyrillic -> RST)
 export { detectLanguage } from './utils/language';
+
+// Structured chapter references for navigation
+export { chapterReferenceForVerse, formatChapterQuery } from './utils/verse-reference';
 
 // Constants & Book Mappings
 export { BIBLE_BOOKS } from './utils/constants';

@@ -21,6 +21,21 @@ export type Translation = 'KJV' | 'RST';
 export type TranslationSelection = Translation | 'Auto';
 
 /**
+ * Structured chapter reference captured from a rendered verse. Chapter
+ * navigation uses the numeric book number rather than re-parsing the
+ * displayed (and possibly abbreviated/translated) book name, and pins the
+ * translation the verse came from so navigation can't silently switch
+ * sources.
+ */
+export interface ChapterReference {
+	book_number: number;
+	chapter: number;
+	translation: Translation;
+	/** Display-only label for the search box; never parsed to resolve a book. */
+	book_name_short: string;
+}
+
+/**
  * Parsed Bible reference (e.g., "John 3:16" or "Gen 1:4-5")
  */
 export interface ParsedReference {

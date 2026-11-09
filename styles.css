@@ -50,6 +50,95 @@
 	flex-shrink: 0;
 }
 
+/* Translation / parallel controls inside the modal. Real radio and
+   checkbox inputs stay focusable; their labels are styled as a segmented
+   control with a visible focus ring. */
+.bible-search-controls {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 16px;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--divider-color);
+}
+
+.bible-search-translation-group {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.bible-search-controls-legend {
+	padding: 0;
+	margin-right: 6px;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--text-muted);
+}
+
+.bible-search-translation-option,
+.bible-search-parallel-option {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 32px;
+	padding: 4px 10px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 13px;
+	background-color: var(--background-secondary);
+}
+
+.bible-search-translation-option:focus-within,
+.bible-search-parallel-option:focus-within {
+	outline: 2px solid var(--text-accent);
+	outline-offset: 2px;
+}
+
+.bible-search-translation-option:has(input:checked),
+.bible-search-parallel-option:has(input:checked),
+.bible-search-translation-option.is-selected {
+	background-color: var(--text-accent);
+	border-color: var(--text-accent);
+	color: var(--text-on-accent);
+}
+
+.bible-search-translation-input,
+.bible-search-parallel-input {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
+	pointer-events: none;
+}
+
+/* Back-to-results row shown while viewing an expanded chapter */
+.bible-search-navigation {
+	display: flex;
+	align-items: center;
+	padding: 6px 12px;
+	border-bottom: 1px solid var(--divider-color);
+}
+
+.bible-search-navigation.is-hidden {
+	display: none;
+}
+
+.bible-search-back {
+	min-height: 32px;
+	padding: 4px 12px;
+	cursor: pointer;
+}
+
+.bible-search-back:focus-visible {
+	outline: 2px solid var(--text-accent);
+	outline-offset: 2px;
+}
+
 .bible-multiselect-toggle {
 	display: flex;
 	align-items: center;
@@ -184,16 +273,64 @@
 	outline: 1px solid var(--text-accent);
 }
 
+/* The primary or parallel verse currently reached by keyboard navigation */
+.verse-block.active-verse {
+	background-color: var(--background-modifier-active-hover);
+	outline: 2px solid var(--text-accent);
+	outline-offset: 1px;
+}
+
+.verse-block:focus-visible,
+.verse-block:focus-within {
+	outline: 2px solid var(--text-accent);
+	outline-offset: 1px;
+}
+
 .verse-checkbox {
+	position: relative;
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	min-width: 32px;
+	min-height: 32px;
+	margin: -4px 0 -4px -4px;
 	color: var(--text-muted);
 	flex-shrink: 0;
+	cursor: pointer;
+	border-radius: 4px;
+}
+
+.verse-checkbox:focus-within {
+	outline: 2px solid var(--text-accent);
+	outline-offset: 1px;
 }
 
 .verse-checkbox.checked {
 	color: var(--text-accent);
+}
+
+.verse-checkbox-input {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	opacity: 0;
+	cursor: pointer;
+}
+
+.verse-checkbox-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	pointer-events: none;
+}
+
+/* Buttons everywhere in the modal get a visible keyboard focus ring. */
+.bible-search-modal button:focus-visible,
+.bible-search-modal input:focus-visible {
+	outline: 2px solid var(--text-accent);
+	outline-offset: 2px;
 }
 
 /* Verses inserted into a note earlier this session - a subtle tint so it's
@@ -255,7 +392,9 @@
 	transition: opacity 0.15s ease;
 }
 
-.bible-verse-result:hover .verse-actions {
+.bible-verse-result:hover .verse-actions,
+.bible-verse-result:focus-within .verse-actions,
+.verse-block.active-verse .verse-actions {
 	opacity: 1;
 }
 

@@ -66,6 +66,26 @@ describe('Search Engine', () => {
 			});
 		});
 
+		it.each(['Auto', 'KJV', 'RST'] as const)('pins a structured chapter despite %s selection and display text', async (translation) => {
+			const result = await search('Ин 3', kjvDb, rstDb, false, 0, {
+				translation,
+				reference: {
+					book_number: BOOK_MAPPINGS.JOHN,
+					chapter: 3,
+					translation: 'RST',
+					book_name_short: 'Ин',
+				},
+			});
+			expect(result.isAddressSearch).toBe(true);
+			expect(result.sourceDb).toBe('RST');
+			expect(result.results.length).toBeGreaterThan(0);
+			result.results.forEach((verse) => {
+				expect(verse.translation).toBe('RST');
+				expect(verse.book_number).toBe(BOOK_MAPPINGS.JOHN);
+				expect(verse.chapter).toBe(3);
+			});
+		});
+
 		it('should populate parallel results from the other translation when enabled', async () => {
 			const result = await search('John 3:16', kjvDb, rstDb, true);
 			expect(result.parallelResults).toBeDefined();

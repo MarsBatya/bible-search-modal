@@ -7,6 +7,14 @@ import { verseKey } from '../utils/verse-key';
  * Results View Component for rendering verse results
  */
 
+/** Which half of a result row keyboard navigation is currently on. */
+export type ActiveColumn = 'main' | 'parallel';
+
+/** DOM id for a result block, used by aria-activedescendant. */
+export function resultBlockId(index: number, column: ActiveColumn): string {
+	return `bible-search-result-${index}-${column}`;
+}
+
 export interface ResultsViewOptions {
 	highlightMatches: boolean;
 	keywords?: string[];
@@ -67,11 +75,40 @@ function renderVerseText(container: HTMLElement, text: string): void {
 }
 
 /**
- * Render the checkbox indicator shown in multi-select mode
+ * Render the checkbox shown in multi-select mode. A real checkbox input is
+ * used for assistive technology and keyboard/touch activation; the icon is
+ * its visual state. Clicking the checkbox must not also activate the verse
+ * row (which would toggle the selection twice).
  */
-function renderCheckbox(refEl: HTMLElement, checked: boolean): void {
-	const checkbox = refEl.createDiv({ cls: `verse-checkbox${checked ? ' checked' : ''}` });
-	setIcon(checkbox, checked ? 'check' : 'circle');
+function renderCheckbox(
+	refEl: HTMLElement,
+	verse: Verse,
+	checked: boolean,
+	options: ResultsViewOptions
+): void {
+	const label = refEl.createEl('label', {
+		cls: `verse-checkbox${checked ? ' checked' : ''}`,
+	});
+	// Clicking the label (and the icon inside it) must not also activate the
+	// verse row, which would toggle the selection twice.
+	label.addEventListener('click', (event) => event.stopPropagation());
+
+	const input = label.createEl('input', {
+		cls: 'verse-checkbox-input',
+		attr: {
+			type: 'checkbox',
+			'aria-label': `Select ${verse.book_name_short} ${verse.chapter}:${verse.verse} (${verse.translation})`,
+		},
+	});
+	input.checked = checked;
+	input.addEventListener('click', (event) => event.stopPropagation());
+	input.addEventListener('change', (event) => {
+		event.stopPropagation();
+		options.onToggleSelect?.(verse);
+	});
+
+	const icon = label.createDiv({ cls: 'verse-checkbox-icon' });
+	setIcon(icon, checked ? 'check' : 'circle');
 }
 
 /**
@@ -130,20 +167,32 @@ function renderVerseActions(refEl: HTMLElement, verse: Verse, options: ResultsVi
 function renderMainVerse(
 	resultEl: HTMLElement,
 	verse: Verse,
-	options: ResultsViewOptions
+	options: ResultsViewOptions,
+	active: boolean,
+	rowIndex: number
 ): void {
 	const mainChecked = options.multiSelectMode ? (options.isSelected?.(verse) ?? false) : false;
 	const mainPasted = options.isRecentlyPasted?.(verse) ?? false;
 
 	const mainVerseEl = resultEl.createDiv({
-		cls: `verse-block main-verse${mainChecked ? ' checked' : ''}${mainPasted ? ' pasted' : ''}`,
-		attr: { 'data-verse-key': verseKey(verse) },
+		cls: `verse-block main-verse${mainChecked ? ' checked' : ''}${mainPasted ? ' pasted' : ''}${
+			active ? ' active-verse' : ''
+		}`,
+		attr: {
+			id: resultBlockId(rowIndex, 'main'),
+			'data-verse-key': verseKey(verse),
+			'data-block-index': String(rowIndex),
+			'data-block-column': 'main',
+			role: 'gridcell',
+			'aria-selected': String(active),
+			tabindex: '-1',
+		},
 	});
 
 	// Verse reference
 	const refEl = mainVerseEl.createDiv({ cls: 'verse-reference' });
 	if (options.multiSelectMode) {
-		renderCheckbox(refEl, mainChecked);
+		renderCheckbox(refEl, verse, mainChecked, options);
 	}
 	refEl.createSpan({
 		cls: 'verse-ref',
@@ -184,7 +233,9 @@ function renderMainVerse(
 function renderParallelVerse(
 	resultEl: HTMLElement,
 	parallelVerse: Verse,
-	options: ResultsViewOptions
+	options: ResultsViewOptions,
+	active: boolean,
+	rowIndex: number
 ): void {
 	const parallelChecked = options.multiSelectMode
 		? (options.isSelected?.(parallelVerse) ?? false)
@@ -192,14 +243,24 @@ function renderParallelVerse(
 	const parallelPasted = options.isRecentlyPasted?.(parallelVerse) ?? false;
 
 	const parallelEl = resultEl.createDiv({
-		cls: `verse-block parallel-verse${parallelChecked ? ' checked' : ''}${parallelPasted ? ' pasted' : ''}`,
-		attr: { 'data-verse-key': verseKey(parallelVerse) },
+		cls: `verse-block parallel-verse${parallelChecked ? ' checked' : ''}${parallelPasted ? ' pasted' : ''}${
+			active ? ' active-verse' : ''
+		}`,
+		attr: {
+			id: resultBlockId(rowIndex, 'parallel'),
+			'data-verse-key': verseKey(parallelVerse),
+			'data-block-index': String(rowIndex),
+			'data-block-column': 'parallel',
+			role: 'gridcell',
+			'aria-selected': String(active),
+			tabindex: '-1',
+		},
 	});
 
 	// Parallel verse reference
 	const parallelRefEl = parallelEl.createDiv({ cls: 'verse-reference parallel' });
 	if (options.multiSelectMode) {
-		renderCheckbox(parallelRefEl, parallelChecked);
+		renderCheckbox(parallelRefEl, parallelVerse, parallelChecked, options);
 	}
 	parallelRefEl.createSpan({
 		cls: 'verse-ref',
@@ -238,18 +299,28 @@ export function renderVerseResult(
 	verse: Verse,
 	options: ResultsViewOptions,
 	isSelected: boolean = false,
-	parallelVerse?: Verse
+	parallelVerse?: Verse,
+	rowIndex: number = 0,
+	activeColumn: ActiveColumn = 'main'
 ): void {
 	container.empty();
 
+	const mainSelected = isSelected && activeColumn === 'main';
 	const resultEl = container.createDiv({
-		cls: `bible-verse-result${isSelected ? ' selected' : ''}`,
+		cls: `bible-verse-result${mainSelected ? ' selected' : ''}`,
+		attr: { role: 'row' },
 	});
 
-	renderMainVerse(resultEl, verse, options);
+	renderMainVerse(resultEl, verse, options, mainSelected, rowIndex);
 
 	if (parallelVerse) {
-		renderParallelVerse(resultEl, parallelVerse, options);
+		renderParallelVerse(
+			resultEl,
+			parallelVerse,
+			options,
+			isSelected && activeColumn === 'parallel',
+			rowIndex
+		);
 	}
 }
 
@@ -260,7 +331,8 @@ export function renderResultsList(
 	container: HTMLElement,
 	verses: Verse[],
 	options: ResultsViewOptions,
-	selectedIndex: number = -1
+	selectedIndex: number = -1,
+	activeColumn: ActiveColumn = 'main'
 ): void {
 	container.empty();
 
@@ -272,8 +344,11 @@ export function renderResultsList(
 		return;
 	}
 
-	const listEl = container.createDiv({ cls: 'verses-list' });
-	appendRows(listEl, verses, options, 0, selectedIndex);
+	const listEl = container.createDiv({
+		cls: 'verses-list',
+		attr: { role: 'presentation' },
+	});
+	appendRows(listEl, verses, options, 0, selectedIndex, activeColumn);
 }
 
 /**
@@ -303,7 +378,8 @@ function appendRows(
 	verses: Verse[],
 	options: ResultsViewOptions,
 	startIndex: number,
-	selectedIndex: number = -1
+	selectedIndex: number = -1,
+	activeColumn: ActiveColumn = 'main'
 ): void {
 	verses.forEach((verse, offset) => {
 		const index = startIndex + offset;
@@ -312,8 +388,18 @@ function appendRows(
 		// correctly paired verse can have different chapter/verse numbers)
 		const parallelVerse = options.parallelResults?.[index];
 
-		const rowEl = listEl.createDiv({ attr: { 'data-row-index': String(index) } });
-		renderVerseResult(rowEl, verse, options, index === selectedIndex, parallelVerse);
+		const rowEl = listEl.createDiv({
+			attr: { 'data-row-index': String(index), role: 'presentation' },
+		});
+		renderVerseResult(
+			rowEl,
+			verse,
+			options,
+			index === selectedIndex,
+			parallelVerse,
+			index,
+			activeColumn
+		);
 	});
 }
 
@@ -341,7 +427,7 @@ export function attachParallelResults(
 		const resultEl = rowEl?.querySelector('.bible-verse-result') as HTMLElement | null;
 		if (!resultEl || resultEl.querySelector('.parallel-verse')) return;
 
-		renderParallelVerse(resultEl, parallelVerse, options);
+		renderParallelVerse(resultEl, parallelVerse, options, false, index);
 	});
 }
 
@@ -358,11 +444,13 @@ export function updateVerseSelection(
 	container.querySelectorAll('[data-verse-key]').forEach((el) => {
 		if (el.getAttribute('data-verse-key') !== key) return;
 		el.classList.toggle('checked', selected);
-		const checkbox = el.querySelector('.verse-checkbox');
-		if (checkbox) {
-			checkbox.classList.toggle('checked', selected);
-			setIcon(checkbox as HTMLElement, selected ? 'check' : 'circle');
-		}
+		const checkbox = el.querySelector<HTMLElement>('.verse-checkbox');
+		if (!checkbox) return;
+		checkbox.classList.toggle('checked', selected);
+		const input = checkbox.querySelector<HTMLInputElement>('.verse-checkbox-input');
+		if (input) input.checked = selected;
+		const icon = checkbox.querySelector<HTMLElement>('.verse-checkbox-icon');
+		if (icon) setIcon(icon, selected ? 'check' : 'circle');
 	});
 }
 
@@ -380,6 +468,13 @@ export function createSearchInput(
 		type: 'text',
 		cls: 'bible-search-input',
 		placeholder,
+		attr: {
+			'aria-label': 'Search bible',
+			role: 'combobox',
+			'aria-autocomplete': 'list',
+			'aria-haspopup': 'grid',
+			'aria-expanded': 'true',
+		},
 	});
 
 	input.addEventListener('input', (e) => {
@@ -412,7 +507,7 @@ export function createMultiSelectToggle(
 ): HTMLButtonElement {
 	const button = container.createEl('button', {
 		cls: 'clickable-icon bible-multiselect-toggle',
-		attr: { 'aria-label': 'Select multiple verses' },
+		attr: { 'aria-label': 'Select multiple verses', 'aria-pressed': 'false' },
 	});
 	setIcon(button, 'list-checks');
 
@@ -456,22 +551,30 @@ export function renderMultiSelectBar(
 }
 
 /**
- * Update selection highlight. Scrolling is immediate (not smooth) so
- * arrow-key navigation keeps up with repeated key presses.
+ * Update the active result. Keyboard navigation can move between the primary
+ * and parallel verse in the same row, so the active column is tracked too.
+ * Scrolling is immediate (not smooth) so arrow-key navigation keeps up with
+ * repeated key presses.
  */
 export function updateSelection(
 	container: HTMLElement,
-	selectedIndex: number
+	selectedIndex: number,
+	activeColumn: ActiveColumn = 'main'
 ): void {
 	const results = container.querySelectorAll('.bible-verse-result');
 
 	results.forEach((el, index) => {
-		if (index === selectedIndex) {
-			el.classList.add('selected');
-			// Scroll into view
-			(el as HTMLElement).scrollIntoView({ behavior: 'auto', block: 'nearest' });
-		} else {
-			el.classList.remove('selected');
+		el.classList.toggle('selected', index === selectedIndex && activeColumn === 'main');
+	});
+
+	container.querySelectorAll<HTMLElement>('.verse-block').forEach((el) => {
+		const rowIndex = Number(el.getAttribute('data-block-index'));
+		const column = el.getAttribute('data-block-column');
+		const active = rowIndex === selectedIndex && column === activeColumn;
+		el.classList.toggle('active-verse', active);
+		el.setAttribute('aria-selected', String(active));
+		if (active) {
+			el.scrollIntoView({ behavior: 'auto', block: 'nearest' });
 		}
 	});
 }

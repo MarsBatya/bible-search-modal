@@ -132,11 +132,14 @@ Keyword matching is a case-insensitive literal substring search over the **visib
 
 ### Navigation & Insertion
 
-- **Arrow Up/Down**: Navigate through search results
-- **Enter**: Insert selected verse into current note
+- **Auto / KJV / RST** controls (in the modal): Pin the source translation for this session. Auto keeps automatic language detection.
+- **Parallel translation** control (in the modal): Show or hide counterpart verses. The saved setting is the initial default; changes apply for the current session.
+- **Arrow Up/Down**: Navigate through search results, including each row's primary and parallel verses
+- **Enter**: Insert the active verse, or toggle it in multi-select mode
 - **Escape**: Close search modal
 - **Copy icon** (on any verse): Copy that verse to the clipboard without inserting it or closing the modal
 - **Expand icon** (on any verse): Jump to its full chapter, scrolled to and highlighting that verse
+- **Back to results**: Return from an expanded chapter to the previous query, loaded pages, selections, active row, and scroll position
 
 ### Random Verse
 
@@ -171,8 +174,10 @@ tR += verse ?? '(Bible Search plugin not available)';
 
 The search modal works great with keyboard:
 - Type your query
-- Press arrow keys to select a verse
-- Press Enter to insert it into your note
+- Tab to the **Auto / KJV / RST** and **Parallel translation** controls to change the source or counterpart display
+- Press arrow keys to move between the primary and parallel verses
+- Press Enter to insert the active verse (or toggle it while multi-select is on)
+- Open a chapter with the expand button, then use **Back to results** to return to where you were
 
 ## Project Structure
 
