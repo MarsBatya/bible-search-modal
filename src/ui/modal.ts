@@ -1,7 +1,8 @@
 import { App, Modal, Notice, Editor, EditorPosition } from 'obsidian';
 import type BibleSearchPlugin from '../main';
-import { Verse, TranslationSelection } from '../types';
+import { Verse, Translation, TranslationSelection } from '../types';
 import { search } from '../search/engine';
+import { coordinateSearch, MissingDatabaseError } from '../search/coordinator';
 import { formatVerse, formatVerses } from '../utils/formatter';
 import { splitKeywords } from '../search/parser';
 import { verseKey } from '../utils/verse-key';
@@ -11,7 +12,6 @@ import {
 	renderMultiSelectBar,
 	renderResultsList,
 	updateSelection,
-	showLoading,
 	showError,
 } from './results-view';
 
@@ -24,6 +24,9 @@ export class BibleSearchModal extends Modal {
 	private multiSelectToggleButton!: HTMLButtonElement;
 	private multiSelectBar!: HTMLElement;
 	private resultsContainer!: HTMLElement;
+	private statusContainer!: HTMLElement;
+	private sourceContainer!: HTMLElement;
+	private resultSource: Translation | undefined;
 	private currentResults: Verse[] = [];
 	private currentResultsTruncated = false;
 	private isLoadingMore = false;
@@ -56,10 +59,12 @@ export class BibleSearchModal extends Modal {
 
 	// Debouncing and cancellation
 	private searchDebounceTimer: number | null = null;
+	private indicatorTimer: number | null = null;
 	private currentSearchAbortController: AbortController | null = null;
+	private currentPrimaryPromise: Promise<void> = Promise.resolve();
 
 	// Debounce delay (ms) - adjust for mobile responsiveness
-	private readonly DEBOUNCE_DELAY = 300;
+	private readonly DEBOUNCE_DELAY = 150;
 
 	constructor(app: App, plugin: BibleSearchPlugin, private readonly onClosed?: () => void) {
 		super(app);
@@ -87,12 +92,7 @@ export class BibleSearchModal extends Modal {
 	setTranslationSelection(selection: TranslationSelection): void {
 		if (this.translationSelection === selection || this.closed) return;
 		this.translationSelection = selection;
-		this.handleSearch(this.searchInput.value);
-		if (this.searchDebounceTimer !== null) {
-			window.clearTimeout(this.searchDebounceTimer);
-			this.searchDebounceTimer = null;
-		}
-		if (this.searchQuery.trim()) void this.performSearch(this.searchQuery, this.requestId);
+		this.handleSearch(this.searchInput.value, true);
 	}
 
 	onOpen(): void {
@@ -126,14 +126,11 @@ export class BibleSearchModal extends Modal {
 
 		// Create results container
 		this.resultsContainer = contentEl.createDiv({ cls: 'results-container' });
+		this.statusContainer = contentEl.createDiv({ cls: 'search-status' });
+		this.sourceContainer = contentEl.createDiv({ cls: 'search-source' });
 
 		// Focus input
 		this.searchInput.focus();
-
-		// Warm up databases if not already loaded so search is instant when user finishes typing
-		const dbEngine = this.plugin.getDbEngine();
-		void dbEngine.ensureDb('KJV').catch((error: unknown) => console.debug('KJV prewarm failed:', error));
-		void dbEngine.ensureDb('RST').catch((error: unknown) => console.debug('RST prewarm failed:', error));
 
 		// Pre-fill with an explicit initial query (e.g. "search selected text"),
 		// falling back to the last query from this session - handy for inserting
@@ -143,7 +140,7 @@ export class BibleSearchModal extends Modal {
 		if (prefillQuery) {
 			this.searchInput.value = prefillQuery;
 			this.searchInput.select();
-			this.handleSearch(prefillQuery);
+			this.handleSearch(prefillQuery, true);
 		}
 	}
 
@@ -151,31 +148,54 @@ export class BibleSearchModal extends Modal {
 	 * Handle search input with debouncing
 	 * Waits for user to stop typing before performing expensive database search
 	 */
-	private handleSearch(query: string) {
+	private handleSearch(query: string, immediate = false): void {
 		const requestId = ++this.requestId;
 		this.searchQuery = query;
 		this.selectedIndex = -1;
 		this.clearResultData();
 		this.currentSearchAbortController?.abort();
+		this.clearTimers();
 
 		// Clear previous debounce timer
-		if (this.searchDebounceTimer !== null) {
-			window.clearTimeout(this.searchDebounceTimer);
-		}
-
-		if (!query || query.length === 0) {
+		if (!query.trim()) {
 			this.resultsContainer.empty();
+			this.statusContainer.empty();
+			this.sourceContainer.empty();
+			this.resultsContainer.removeAttribute('aria-busy');
 			return;
 		}
 
-		// Show loading state immediately, but defer actual search
-		showLoading(this.resultsContainer);
+		// Old rows remain visible, but their callbacks are guarded by request ID.
+		this.resultsContainer.setAttribute('aria-busy', 'true');
+		this.statusContainer.empty();
+		this.indicatorTimer = window.setTimeout(() => {
+			this.indicatorTimer = null;
+			if (this.isCurrent(requestId)) this.statusContainer.setText('Searching…');
+		}, 150);
 
-		// Debounce: wait for user to stop typing
+		if (immediate) {
+			void this.performSearch(query, requestId);
+			return;
+		}
 		this.searchDebounceTimer = window.setTimeout(() => {
 			this.searchDebounceTimer = null;
 			void this.performSearch(query, requestId);
 		}, this.DEBOUNCE_DELAY);
+	}
+
+	private clearTimers(): void {
+		if (this.searchDebounceTimer !== null) window.clearTimeout(this.searchDebounceTimer);
+		if (this.indicatorTimer !== null) window.clearTimeout(this.indicatorTimer);
+		this.searchDebounceTimer = null;
+		this.indicatorTimer = null;
+	}
+
+	private finishPending(requestId: number): void {
+		if (!this.isCurrent(requestId)) return;
+		if (this.indicatorTimer !== null) window.clearTimeout(this.indicatorTimer);
+		this.indicatorTimer = null;
+		this.statusContainer.empty();
+		this.resultsContainer.removeAttribute('aria-busy');
 	}
 
 	private isCurrent(requestId: number): boolean {
@@ -188,6 +208,7 @@ export class BibleSearchModal extends Modal {
 
 	private clearResultData(): void {
 		this.displayedRequestId = -1;
+		this.resultSource = undefined;
 		this.currentResults = [];
 		this.currentResultsTruncated = false;
 		this.parallelResults = undefined;
@@ -202,90 +223,43 @@ export class BibleSearchModal extends Modal {
 	 */
 	private async performSearch(query: string, requestId: number) {
 		if (!this.isCurrent(requestId)) return;
-		// Cancel previous search if still in progress
-		if (this.currentSearchAbortController) {
-			this.currentSearchAbortController.abort();
-		}
-
-		// Create new abort controller for this search
-		this.currentSearchAbortController = new AbortController();
-		const abortSignal = this.currentSearchAbortController.signal;
-
-		// Double-check this is still the latest query
-		// (user might have typed more while debouncing)
-		if (!this.isCurrent(requestId)) {
-			return;
-		}
-
+		let primaryDone!: () => void;
+		this.currentPrimaryPromise = new Promise<void>((resolve) => { primaryDone = resolve; });
+		this.currentSearchAbortController?.abort();
+		const controller = new AbortController();
+		this.currentSearchAbortController = controller;
+		const isCurrent = () => !controller.signal.aborted && this.isCurrent(requestId);
 		try {
-			const dbEngine = this.plugin.getDbEngine();
-
-			// Check if search was aborted while waiting for DB
-			if (abortSignal.aborted || !this.isCurrent(requestId)) return;
-
-			// Ensure at least one database is available (wait if still loading, load concurrently)
-			// 5 second timeout for each database (user can wait, but not forever)
-			const [kjvDbResult, rstDbResult] = await Promise.all([
-				dbEngine.ensureDb('KJV', 5000).catch(() => null),
-				dbEngine.ensureDb('RST', 5000).catch(() => null),
-			]);
-
-			// Check if search was aborted while waiting for DB
-			if (abortSignal.aborted || !this.isCurrent(requestId)) return;
-
-			// Convert null to undefined for search function
-			const kjvDb = kjvDbResult ?? undefined;
-			const rstDb = rstDbResult ?? undefined;
-
-			// If no database is ready, show error
-			if (!kjvDb && !rstDb) {
-				showError(
-					this.resultsContainer,
-					'No Bible databases available. Please configure and download databases in settings.'
-				);
-				return;
-			}
-
-			const result = await search(
-				query,
-				kjvDb,
-				rstDb,
-				this.plugin.settings.showParallelByDefault,
-				0,
-				{ translation: this.translationSelection }
-			);
-
-			// Check if search was aborted before showing results
-			if (abortSignal.aborted || !this.isCurrent(requestId)) return;
-
-			// Only show results if this is still the latest query
-			if (!this.isCurrent(requestId)) {
-				return;
-			}
-
-			this.currentResults = result.results;
-			this.displayedRequestId = requestId;
-			this.currentResultsTruncated = result.isTruncated ?? false;
-			this.parallelResults = result.parallelResults;
-			// A new search's results are a fresh set - past picks don't carry over
-			this.selectedVerseKeys.clear();
-			this.updateMultiSelectBar();
-
-			if (this.currentResults.length === 0) {
-				showError(this.resultsContainer, 'No verses found');
-				return;
-			}
-
-			// Get keywords for highlighting
-			this.currentKeywords = result.isAddressSearch ? [] : splitKeywords(query);
-
-			this.renderResults();
+			await coordinateSearch(query, this.translationSelection,
+				this.plugin.settings.showParallelByDefault, this.plugin.getDbEngine(), isCurrent,
+				(result) => {
+					this.currentResults = result.results;
+					this.resultSource = result.sourceDb;
+					this.displayedRequestId = requestId;
+					this.currentResultsTruncated = result.isTruncated ?? false;
+					this.parallelResults = result.parallelResults;
+					this.currentKeywords = result.isAddressSearch ? [] : splitKeywords(query);
+					this.sourceContainer.setText(`Showing ${result.sourceDb}`);
+					this.finishPending(requestId);
+					primaryDone();
+					if (result.results.length === 0) {
+						this.resultsContainer.empty();
+						this.resultsContainer.createDiv({ cls: 'no-results', text: 'No verses found' });
+					} else this.renderResults();
+				},
+				(result) => {
+					this.parallelResults = result.parallelResults;
+					this.renderResults();
+				}, () => this.currentResults);
 		} catch (error) {
-			// Ignore errors if search was aborted
-			if (!abortSignal.aborted && this.isCurrent(requestId)) {
-				console.error('Search error:', error);
-				showError(this.resultsContainer, String(error));
+			if (isCurrent()) {
+				this.finishPending(requestId);
+				this.sourceContainer.empty();
+				if (!(error instanceof MissingDatabaseError)) console.error('Search error:', error);
+				showError(this.resultsContainer, error instanceof Error ? error.message : String(error));
 			}
+		} finally {
+			primaryDone();
 		}
 	}
 
@@ -294,10 +268,7 @@ export class BibleSearchModal extends Modal {
 	 */
 	private handleClear() {
 		++this.requestId;
-		if (this.searchDebounceTimer !== null) {
-			window.clearTimeout(this.searchDebounceTimer);
-			this.searchDebounceTimer = null;
-		}
+		this.clearTimers();
 		if (this.currentSearchAbortController) {
 			this.currentSearchAbortController.abort();
 			this.currentSearchAbortController = null;
@@ -307,12 +278,22 @@ export class BibleSearchModal extends Modal {
 		this.selectedIndex = -1;
 		this.clearResultData();
 		this.resultsContainer.empty();
+		this.statusContainer.empty();
+		this.sourceContainer.empty();
+		this.resultsContainer.removeAttribute('aria-busy');
 	}
 
 	/**
 	 * Handle keyboard navigation
 	 */
 	private handleKeyDown(event: KeyboardEvent) {
+		if (event.key === 'Enter' && this.searchDebounceTimer !== null) {
+			event.preventDefault();
+			window.clearTimeout(this.searchDebounceTimer);
+			this.searchDebounceTimer = null;
+			void this.performSearch(this.searchQuery, this.requestId);
+			return;
+		}
 		if (!this.hasCurrentResults() || this.currentResults.length === 0) {
 			return;
 		}
@@ -330,8 +311,8 @@ export class BibleSearchModal extends Modal {
 
 			case 'Enter':
 				event.preventDefault();
-				if (this.selectedIndex >= 0 && this.selectedIndex < this.currentResults.length) {
-					const verse = this.currentResults[this.selectedIndex];
+				if (this.currentResults.length > 0) {
+					const verse = this.currentResults[this.selectedIndex >= 0 ? this.selectedIndex : 0];
 					if (verse) {
 						if (this.multiSelectMode) {
 							this.handleToggleSelect(verse);
@@ -529,22 +510,12 @@ export class BibleSearchModal extends Modal {
 	 */
 	private async expandToChapter(verse: Verse) {
 		if (!this.hasCurrentResults()) return;
-		if (this.searchDebounceTimer !== null) {
-			window.clearTimeout(this.searchDebounceTimer);
-			this.searchDebounceTimer = null;
-		}
-
 		const query = `${verse.book_name_short} ${verse.chapter}`;
 		this.searchInput.value = query;
-		this.handleSearch(query);
+		this.handleSearch(query, true);
 		const requestId = this.requestId;
-		if (this.searchDebounceTimer !== null) {
-			window.clearTimeout(this.searchDebounceTimer);
-			this.searchDebounceTimer = null;
-		}
-		showLoading(this.resultsContainer);
-
-		await this.performSearch(query, requestId);
+		// The immediate search is already running; wait for its primary result.
+		await this.currentPrimaryPromise;
 		if (!this.isCurrent(requestId) || !this.hasCurrentResults()) return;
 
 		const index = this.currentResults.findIndex(
@@ -619,13 +590,14 @@ export class BibleSearchModal extends Modal {
 				engine.getDb('RST'),
 				this.plugin.settings.showParallelByDefault,
 				priorCount,
-				{ translation: this.translationSelection }
+				{ translation: this.resultSource }
 			);
 			if (!this.isCurrent(requestId) || !this.hasCurrentResults()) return;
 			this.currentResults = this.currentResults.concat(result.results);
-			this.parallelResults = this.parallelResults
-				? this.parallelResults.concat(result.parallelResults ?? [])
-				: result.parallelResults;
+			this.parallelResults = this.parallelResults || result.parallelResults
+				? (this.parallelResults ?? Array<Verse | undefined>(priorCount).fill(undefined))
+					.concat(result.parallelResults ?? Array<Verse | undefined>(result.results.length).fill(undefined))
+				: undefined;
 			this.currentResultsTruncated = result.isTruncated ?? false;
 		} catch (error) {
 			if (this.isCurrent(requestId)) {
@@ -746,10 +718,7 @@ export class BibleSearchModal extends Modal {
 	onClose(): void {
 		this.closed = true;
 		++this.requestId;
-		if (this.searchDebounceTimer !== null) {
-			window.clearTimeout(this.searchDebounceTimer);
-			this.searchDebounceTimer = null;
-		}
+		this.clearTimers();
 		this.currentSearchAbortController?.abort();
 		this.currentSearchAbortController = null;
 		this.clearResultData();

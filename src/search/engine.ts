@@ -166,7 +166,7 @@ function getParallelVerse(verse: Verse, otherDb: DatabaseInstance): Verse | unde
  * Find the counterpart of each verse in `verses` within `otherDb`, in the
  * same order - index-aligned with `verses` (see SearchResult.parallelResults)
  */
-function getParallelVerses(verses: Verse[], otherDb: DatabaseInstance): (Verse | undefined)[] {
+export function getParallelVerses(verses: Verse[], otherDb: DatabaseInstance): (Verse | undefined)[] {
 	return verses.map((verse) => getParallelVerse(verse, otherDb));
 }
 

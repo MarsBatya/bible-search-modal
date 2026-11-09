@@ -8,8 +8,10 @@ const { searchMock, renderResultsListMock } = vi.hoisted(() => ({
 
 class FakeElement {
 	value = '';
+	text = '';
+	attributes = new Map<string, string>();
 	classList = { add: vi.fn(), toggle: vi.fn() };
-	empty = vi.fn();
+	empty = vi.fn(() => { this.text = ''; });
 	addClass = vi.fn();
 	removeClass = vi.fn();
 	createDiv(): FakeElement { return new FakeElement(); }
@@ -17,6 +19,9 @@ class FakeElement {
 	addEventListener = vi.fn();
 	focus = vi.fn();
 	select = vi.fn();
+	setText(value: string): void { this.text = value; }
+	setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
+	removeAttribute(name: string): void { this.attributes.delete(name); }
 }
 
 vi.mock('obsidian', () => ({
@@ -55,11 +60,11 @@ function deferred<T>() {
 	return { promise, resolve, reject };
 }
 
-function createModal(): BibleSearchModal {
+function createModal(lastQuery = ''): BibleSearchModal {
 	const plugin = {
 		settings: { showParallelByDefault: false, highlightMatches: false },
 		getDbEngine: () => ({ ensureDb: vi.fn().mockResolvedValue({ isLoaded: true }), getDb: vi.fn() }),
-		getLastSearchQuery: () => '',
+		getLastSearchQuery: () => lastQuery,
 		setLastSearchQuery: vi.fn(),
 		isRecentlyInserted: () => false,
 	};
@@ -70,9 +75,7 @@ function createModal(): BibleSearchModal {
 }
 
 async function settle(): Promise<void> {
-	await Promise.resolve();
-	await Promise.resolve();
-	await Promise.resolve();
+	for (let index = 0; index < 12; index++) await Promise.resolve();
 }
 
 async function flushDebounce(): Promise<void> {
@@ -169,6 +172,107 @@ describe('modal search state', () => {
 		page.resolve({ results: [verse], sourceDb: 'KJV', query: 'grace', isAddressSearch: false });
 		await loading;
 		expect(modal['currentResults']).toEqual([]);
+		modal.onClose();
+	});
+
+	it('pins pagination to the displayed source and preserves missing counterpart slots', async () => {
+		const rstVerse = { ...verse, translation: 'RST' as const };
+		const nextVerse = { ...rstVerse, verse: 17 };
+		searchMock.mockResolvedValueOnce({ results: [rstVerse], sourceDb: 'RST', isTruncated: true })
+			.mockResolvedValueOnce({ results: [nextVerse], sourceDb: 'RST', parallelResults: [verse] });
+		const modal = createModal();
+		modal['handleSearch']('faith', true);
+		await settle();
+		await modal['loadMoreResults']();
+		expect(searchMock.mock.lastCall?.[5]).toEqual({ translation: 'RST' });
+		expect(modal['parallelResults']).toEqual([undefined, verse]);
+		modal.onClose();
+	});
+});
+
+describe('modal search timing', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.stubGlobal('window', {
+			setTimeout,
+			clearTimeout,
+		});
+		searchMock.mockReset().mockResolvedValue({
+			results: [verse], sourceDb: 'KJV', query: 'John 3:16', isAddressSearch: true,
+		});
+		renderResultsListMock.mockReset();
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.unstubAllGlobals();
+	});
+
+	it('debounces typing for 150 ms and keeps prior rows inactive while busy', async () => {
+		const modal = createModal('John 3:16');
+		await settle();
+		const staleActions = renderResultsListMock.mock.lastCall?.[2] as { onSelect: (verse: Verse) => void };
+		const results = modal['resultsContainer'] as unknown as FakeElement;
+		results.empty.mockClear();
+		modal['handleSearch']('John 3:17');
+		expect(results.attributes.get('aria-busy')).toBe('true');
+		expect(results.empty).not.toHaveBeenCalled();
+		const insert = vi.spyOn(modal, 'insertVerse' as never).mockImplementation(() => undefined);
+		staleActions.onSelect(verse);
+		expect(insert).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(149);
+		expect(searchMock).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(searchMock).toHaveBeenCalledTimes(2);
+		expect(results.attributes.has('aria-busy')).toBe(false);
+		modal.onClose();
+	});
+
+	it('flushes pending Enter without inserting until a later Enter', async () => {
+		const modal = createModal();
+		modal['handleSearch']('John 3:16');
+		const insert = vi.spyOn(modal, 'insertVerse' as never).mockImplementation(() => undefined);
+		const event = { key: 'Enter', preventDefault: vi.fn() } as unknown as KeyboardEvent;
+		modal['handleKeyDown'](event);
+		await settle();
+		expect(searchMock).toHaveBeenCalledOnce();
+		expect(insert).not.toHaveBeenCalled();
+		modal['handleKeyDown'](event);
+		expect(insert).toHaveBeenCalledWith(verse);
+		modal.onClose();
+	});
+
+	it('runs a restored query immediately and delays the searching indicator', async () => {
+		const pending = deferred<unknown>();
+		searchMock.mockReturnValue(pending.promise);
+		const modal = createModal('John 3:16');
+		await settle();
+		expect(searchMock).toHaveBeenCalledOnce();
+		const status = modal['statusContainer'] as unknown as FakeElement;
+		expect(status.text).toBe('');
+		await vi.advanceTimersByTimeAsync(149);
+		expect(status.text).toBe('');
+		await vi.advanceTimersByTimeAsync(1);
+		expect(status.text).toBe('Searching…');
+		pending.resolve({ results: [verse], sourceDb: 'KJV', query: 'John 3:16', isAddressSearch: true });
+		await modal['currentPrimaryPromise'];
+		modal.onClose();
+	});
+
+	it('debounces rapid edits to only the latest query and searches translation changes immediately', async () => {
+		const modal = createModal();
+		modal['handleSearch']('old');
+		await vi.advanceTimersByTimeAsync(100);
+		modal['handleSearch']('new');
+		await vi.advanceTimersByTimeAsync(149);
+		expect(searchMock).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(1);
+		expect(searchMock).toHaveBeenCalledOnce();
+		expect(searchMock.mock.lastCall?.[0]).toBe('new');
+		modal['searchInput'].value = 'new';
+		modal.setTranslationSelection('RST');
+		await settle();
+		expect(searchMock).toHaveBeenCalledTimes(2);
+		expect(searchMock.mock.lastCall?.[5]).toEqual({ translation: 'RST' });
 		modal.onClose();
 	});
 });
