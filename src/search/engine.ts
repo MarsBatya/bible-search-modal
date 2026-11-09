@@ -7,7 +7,8 @@ import {
 	getVerse,
 	getChapter,
 	getVerseRange,
-	searchVersesKeyword,
+	createVerseLookup,
+	searchVersesKeywordAsync,
 	KEYWORD_SEARCH_LIMIT,
 } from '../database/queries';
 
@@ -122,7 +123,7 @@ export async function search(
 	} else {
 		// Keyword search - always try both databases for parallel
 		const keywords = splitKeywords(trimmedQuery);
-		result = keywordSearch(trimmedQuery, keywords, selectedDb, rstDb, kjvDb, showParallel, offset);
+		result = await keywordSearch(trimmedQuery, keywords, selectedDb, rstDb, kjvDb, showParallel, offset);
 	}
 
 	// Cache result
@@ -148,7 +149,11 @@ function resolveOtherDb(
  * Synodal (Russian Orthodox) traditions (see utils/versification.ts).
  * Returns undefined if no counterpart verse exists.
  */
-function getParallelVerse(verse: Verse, otherDb: DatabaseInstance): Verse | undefined {
+function getParallelVerse(
+	verse: Verse,
+	otherDb: DatabaseInstance,
+	lookup: ReturnType<typeof createVerseLookup>
+): Verse | undefined {
 	const mapped = convertVersification(
 		verse.book_number,
 		verse.chapter,
@@ -159,15 +164,21 @@ function getParallelVerse(verse: Verse, otherDb: DatabaseInstance): Verse | unde
 	if (!mapped) {
 		return undefined;
 	}
-	return getVerse(otherDb, verse.book_number, mapped.chapter, mapped.verse) ?? undefined;
+	return lookup.get(verse.book_number, mapped.chapter, mapped.verse);
 }
 
 /**
  * Find the counterpart of each verse in `verses` within `otherDb`, in the
- * same order - index-aligned with `verses` (see SearchResult.parallelResults)
+ * same order - index-aligned with `verses` (see SearchResult.parallelResults).
+ * One prepared statement is shared across the whole batch.
  */
 export function getParallelVerses(verses: Verse[], otherDb: DatabaseInstance): (Verse | undefined)[] {
-	return verses.map((verse) => getParallelVerse(verse, otherDb));
+	const lookup = createVerseLookup(otherDb);
+	try {
+		return verses.map((verse) => getParallelVerse(verse, otherDb, lookup));
+	} finally {
+		lookup.free();
+	}
 }
 
 /**
@@ -243,7 +254,7 @@ function addressSearch(
 /**
  * Search by keywords
  */
-function keywordSearch(
+async function keywordSearch(
 	query: string,
 	keywords: string[],
 	selectedDb: DatabaseInstance,
@@ -251,8 +262,8 @@ function keywordSearch(
 	kjvDb: DatabaseInstance | undefined,
 	showParallel: boolean,
 	offset: number
-): SearchResult {
-	const page = searchVersesKeyword(selectedDb, keywords, KEYWORD_SEARCH_LIMIT + 1, offset);
+): Promise<SearchResult> {
+	const page = await searchVersesKeywordAsync(selectedDb, keywords, KEYWORD_SEARCH_LIMIT + 1, offset);
 	const isTruncated = page.length > KEYWORD_SEARCH_LIMIT;
 	const results = page.slice(0, KEYWORD_SEARCH_LIMIT);
 

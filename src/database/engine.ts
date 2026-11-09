@@ -3,6 +3,7 @@ import initSqlJs from 'sql.js';
 import { DatabaseInstance, Translation } from '../types';
 import { getWasmBinary } from './wasm-loader';
 import { getRussianNumbering } from './queries';
+import { disposeSearchCorpus } from './corpus';
 import { debug } from '../utils/logger';
 
 /**
@@ -92,6 +93,7 @@ export class DatabaseEngine {
 		if (this.disposed) return;
 		this.disposed = true;
 		for (const instance of this.databases.values()) {
+			disposeSearchCorpus(instance);
 			instance.isLoaded = false;
 			instance.db.close();
 		}
@@ -292,6 +294,7 @@ export class DatabaseEngine {
 			const old = this.databases.get(translation);
 			this.databases.set(translation, instance);
 			if (old && old !== instance) {
+				disposeSearchCorpus(old);
 				old.isLoaded = false;
 				old.db.close();
 			}

@@ -16,6 +16,8 @@ class FakeElement {
 	removeClass = vi.fn();
 	createDiv(): FakeElement { return new FakeElement(); }
 	createEl(): FakeElement { return new FakeElement(); }
+	querySelector = vi.fn(() => null);
+	querySelectorAll = vi.fn(() => []);
 	addEventListener = vi.fn();
 	focus = vi.fn();
 	select = vi.fn();
@@ -39,7 +41,10 @@ vi.mock('../src/ui/results-view', () => ({
 	createMultiSelectToggle: () => new FakeElement(),
 	renderMultiSelectBar: vi.fn(),
 	renderResultsList: renderResultsListMock,
+	appendResultsList: vi.fn(),
+	attachParallelResults: vi.fn(),
 	updateSelection: vi.fn(),
+	updateVerseSelection: vi.fn(),
 	showLoading: vi.fn(),
 	showError: vi.fn(),
 }));

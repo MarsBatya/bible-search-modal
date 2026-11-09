@@ -11,9 +11,13 @@ import {
 	createMultiSelectToggle,
 	renderMultiSelectBar,
 	renderResultsList,
+	appendResultsList,
+	attachParallelResults,
 	updateSelection,
+	updateVerseSelection,
 	showError,
 } from './results-view';
+import type { ResultsViewOptions } from './results-view';
 
 /**
  * Bible Search Modal - Main UI component for searching and inserting verses
@@ -248,8 +252,11 @@ export class BibleSearchModal extends Modal {
 					} else this.renderResults();
 				},
 				(result) => {
+					// Counterparts arrived after the primary rows rendered -
+					// attach them in place instead of rebuilding the list.
+					if (!this.hasCurrentResults()) return;
 					this.parallelResults = result.parallelResults;
-					this.renderResults();
+					this.attachParallelResults();
 				}, () => this.currentResults);
 		} catch (error) {
 			if (isCurrent()) {
@@ -532,45 +539,98 @@ export class BibleSearchModal extends Modal {
 	}
 
 	/**
+	 * Build the results-view options for the currently displayed result set.
+	 * The callbacks guard on the request that produced the rows, so rows left
+	 * over from an older query can't act once a newer one is displayed.
+	 */
+	private createResultsOptions(): ResultsViewOptions {
+		const renderedRequestId = this.displayedRequestId;
+		const isActionCurrent = () => this.isCurrent(renderedRequestId) && this.hasCurrentResults();
+
+		return {
+			highlightMatches: this.plugin.settings.highlightMatches,
+			keywords: this.currentKeywords,
+			onSelect: (verse) => { if (isActionCurrent()) this.insertVerse(verse); },
+			parallelResults: this.parallelResults,
+			multiSelectMode: this.multiSelectMode,
+			isSelected: (verse) => this.selectedVerseKeys.has(verseKey(verse)),
+			onToggleSelect: (verse) => { if (isActionCurrent()) this.handleToggleSelect(verse); },
+			onCopy: (verse) => { if (isActionCurrent()) void this.copyVerse(verse); },
+			onExpand: (verse) => { if (isActionCurrent()) void this.expandToChapter(verse); },
+			isRecentlyPasted: (verse) => this.plugin.isRecentlyInserted(verseKey(verse)),
+		};
+	}
+
+	/**
 	 * Render the current results, reflecting multi-select state
 	 */
 	private renderResults() {
 		if (!this.hasCurrentResults() || this.currentResults.length === 0) {
 			return;
 		}
-		const renderedRequestId = this.displayedRequestId;
-		const isActionCurrent = () => this.isCurrent(renderedRequestId) && this.hasCurrentResults();
 
 		renderResultsList(
 			this.resultsContainer,
 			this.currentResults,
-			{
-				highlightMatches: this.plugin.settings.highlightMatches,
-				keywords: this.currentKeywords,
-				onSelect: (verse) => { if (isActionCurrent()) this.insertVerse(verse); },
-				parallelResults: this.parallelResults,
-				multiSelectMode: this.multiSelectMode,
-				isSelected: (verse) => this.selectedVerseKeys.has(verseKey(verse)),
-				onToggleSelect: (verse) => { if (isActionCurrent()) this.handleToggleSelect(verse); },
-				onCopy: (verse) => { if (isActionCurrent()) void this.copyVerse(verse); },
-				onExpand: (verse) => { if (isActionCurrent()) void this.expandToChapter(verse); },
-				isRecentlyPasted: (verse) => this.plugin.isRecentlyInserted(verseKey(verse)),
-			},
+			this.createResultsOptions(),
 			this.selectedIndex
 		);
 
-		if (this.currentResultsTruncated) {
-			const moreResultsEl = this.resultsContainer.createDiv({ cls: 'search-more-results' });
-			moreResultsEl.createDiv({
-				cls: 'search-truncation-message',
-				text: `Showing ${this.currentResults.length} results. More matches are available.`,
-			});
-			const loadMoreButton = moreResultsEl.createEl('button', {
-				text: this.isLoadingMore ? 'Loading…' : 'Load more results',
-			});
-			loadMoreButton.disabled = this.isLoadingMore;
-			loadMoreButton.addEventListener('click', () => { if (isActionCurrent()) void this.loadMoreResults(); });
+		this.updateTruncationControls();
+	}
+
+	/**
+	 * Append only the newly loaded page, leaving existing rows (and their
+	 * scroll position/focus) untouched.
+	 */
+	private appendResults(verses: Verse[], startIndex: number) {
+		if (!this.hasCurrentResults() || verses.length === 0) return;
+		appendResultsList(this.resultsContainer, verses, this.createResultsOptions(), startIndex);
+	}
+
+	/**
+	 * Attach counterpart blocks to existing primary rows in place.
+	 */
+	private attachParallelResults() {
+		if (!this.hasCurrentResults()) return;
+		attachParallelResults(
+			this.resultsContainer,
+			this.currentResults,
+			this.parallelResults,
+			this.createResultsOptions()
+		);
+	}
+
+	/**
+	 * Create or update the truncation notice / "Load more" control without
+	 * recreating it, so a focused button keeps focus across pagination.
+	 */
+	private updateTruncationControls() {
+		const existing = this.resultsContainer.querySelector<HTMLElement>('.search-more-results');
+
+		if (!this.currentResultsTruncated || this.currentResults.length === 0) {
+			existing?.remove();
+			return;
 		}
+
+		const moreResultsEl = existing ?? this.resultsContainer.createDiv({ cls: 'search-more-results' });
+		let messageEl = moreResultsEl.querySelector<HTMLElement>('.search-truncation-message');
+		if (!messageEl) {
+			messageEl = moreResultsEl.createDiv({ cls: 'search-truncation-message' });
+		}
+		messageEl.setText(
+			`Showing ${this.currentResults.length} results. More matches are available.`
+		);
+
+		let loadMoreButton = moreResultsEl.querySelector<HTMLButtonElement>('button');
+		if (!loadMoreButton) {
+			loadMoreButton = moreResultsEl.createEl('button');
+			loadMoreButton.addEventListener('click', () => {
+				if (this.hasCurrentResults()) void this.loadMoreResults();
+			});
+		}
+		loadMoreButton.setText(this.isLoadingMore ? 'Loading…' : 'Load more results');
+		loadMoreButton.disabled = this.isLoadingMore;
 	}
 
 	/** Append the next keyword result page without discarding current selections. */
@@ -580,7 +640,7 @@ export class BibleSearchModal extends Modal {
 		const query = this.searchQuery;
 		const priorCount = this.currentResults.length;
 		this.isLoadingMore = true;
-		this.renderResults();
+		this.updateTruncationControls();
 
 		try {
 			const engine = this.plugin.getDbEngine();
@@ -593,12 +653,14 @@ export class BibleSearchModal extends Modal {
 				{ translation: this.resultSource }
 			);
 			if (!this.isCurrent(requestId) || !this.hasCurrentResults()) return;
-			this.currentResults = this.currentResults.concat(result.results);
+			const appended = result.results;
+			this.currentResults = this.currentResults.concat(appended);
 			this.parallelResults = this.parallelResults || result.parallelResults
 				? (this.parallelResults ?? Array<Verse | undefined>(priorCount).fill(undefined))
-					.concat(result.parallelResults ?? Array<Verse | undefined>(result.results.length).fill(undefined))
+					.concat(result.parallelResults ?? Array<Verse | undefined>(appended.length).fill(undefined))
 				: undefined;
 			this.currentResultsTruncated = result.isTruncated ?? false;
+			this.appendResults(appended, priorCount);
 		} catch (error) {
 			if (this.isCurrent(requestId)) {
 				console.error('Failed to load more search results:', error);
@@ -607,7 +669,7 @@ export class BibleSearchModal extends Modal {
 		} finally {
 			if (this.isCurrent(requestId)) {
 				this.isLoadingMore = false;
-				this.renderResults();
+				this.updateTruncationControls();
 			}
 		}
 	}
@@ -647,17 +709,20 @@ export class BibleSearchModal extends Modal {
 	}
 
 	/**
-	 * Toggle a verse's selected state in multi-select mode
+	 * Toggle a verse's selected state in multi-select mode. Only the affected
+	 * row and the selection counter are updated - the rest of the list is
+	 * left in place so scroll position and focus survive.
 	 */
 	private handleToggleSelect(verse: Verse) {
 		if (!this.hasCurrentResults()) return;
 		const key = verseKey(verse);
-		if (this.selectedVerseKeys.has(key)) {
-			this.selectedVerseKeys.delete(key);
-		} else {
+		const selected = !this.selectedVerseKeys.has(key);
+		if (selected) {
 			this.selectedVerseKeys.add(key);
+		} else {
+			this.selectedVerseKeys.delete(key);
 		}
-		this.renderResults();
+		updateVerseSelection(this.resultsContainer, verse, selected);
 		this.updateMultiSelectBar();
 	}
 

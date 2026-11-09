@@ -1,6 +1,7 @@
 import { setIcon } from 'obsidian';
 import { Verse } from '../types';
 import { stripMarkup, highlightKeywords } from '../utils/formatter';
+import { verseKey } from '../utils/verse-key';
 
 /**
  * Results View Component for rendering verse results
@@ -124,27 +125,19 @@ function renderVerseActions(refEl: HTMLElement, verse: Verse, options: ResultsVi
 }
 
 /**
- * Render a single verse result with optional parallel translation
+ * Render the primary verse block of a result row
  */
-export function renderVerseResult(
-	container: HTMLElement,
+function renderMainVerse(
+	resultEl: HTMLElement,
 	verse: Verse,
-	options: ResultsViewOptions,
-	isSelected: boolean = false,
-	parallelVerse?: Verse
+	options: ResultsViewOptions
 ): void {
-	container.empty();
-
-	const resultEl = container.createDiv({
-		cls: `bible-verse-result ${isSelected ? 'selected' : ''}`,
-	});
-
 	const mainChecked = options.multiSelectMode ? (options.isSelected?.(verse) ?? false) : false;
 	const mainPasted = options.isRecentlyPasted?.(verse) ?? false;
 
-	// Main verse
 	const mainVerseEl = resultEl.createDiv({
 		cls: `verse-block main-verse${mainChecked ? ' checked' : ''}${mainPasted ? ' pasted' : ''}`,
+		attr: { 'data-verse-key': verseKey(verse) },
 	});
 
 	// Verse reference
@@ -183,50 +176,80 @@ export function renderVerseResult(
 			options.onSelect(verse);
 		}
 	});
+}
 
-	// Parallel verse (if available)
-	if (parallelVerse) {
-		const parallelChecked = options.multiSelectMode
-			? (options.isSelected?.(parallelVerse) ?? false)
-			: false;
-		const parallelPasted = options.isRecentlyPasted?.(parallelVerse) ?? false;
+/**
+ * Render the parallel translation block of a result row
+ */
+function renderParallelVerse(
+	resultEl: HTMLElement,
+	parallelVerse: Verse,
+	options: ResultsViewOptions
+): void {
+	const parallelChecked = options.multiSelectMode
+		? (options.isSelected?.(parallelVerse) ?? false)
+		: false;
+	const parallelPasted = options.isRecentlyPasted?.(parallelVerse) ?? false;
 
-		const parallelEl = resultEl.createDiv({
-			cls: `verse-block parallel-verse${parallelChecked ? ' checked' : ''}${parallelPasted ? ' pasted' : ''}`,
-		});
+	const parallelEl = resultEl.createDiv({
+		cls: `verse-block parallel-verse${parallelChecked ? ' checked' : ''}${parallelPasted ? ' pasted' : ''}`,
+		attr: { 'data-verse-key': verseKey(parallelVerse) },
+	});
 
-		// Parallel verse reference
-		const parallelRefEl = parallelEl.createDiv({ cls: 'verse-reference parallel' });
+	// Parallel verse reference
+	const parallelRefEl = parallelEl.createDiv({ cls: 'verse-reference parallel' });
+	if (options.multiSelectMode) {
+		renderCheckbox(parallelRefEl, parallelChecked);
+	}
+	parallelRefEl.createSpan({
+		cls: 'verse-ref',
+		text: `${parallelVerse.book_name_short} ${parallelVerse.chapter}:${parallelVerse.verse}`,
+	});
+	parallelRefEl.createSpan({
+		cls: `translation-badge ${parallelVerse.translation.toLowerCase()}`,
+		text: parallelVerse.translation,
+	});
+	renderPastedBadge(parallelRefEl, parallelVerse, options);
+	renderVerseActions(parallelRefEl, parallelVerse, options);
+
+	// Parallel verse text
+	const parallelText = stripMarkup(parallelVerse.text || '');
+
+	const parallelTextEl = parallelEl.createDiv({ cls: 'verse-text' });
+	renderVerseText(parallelTextEl, parallelText);
+
+	// Add click handler to parallel verse - selected independently from
+	// the main verse in multi-select mode
+	parallelEl.addEventListener('click', (e) => {
+		e.stopPropagation();
 		if (options.multiSelectMode) {
-			renderCheckbox(parallelRefEl, parallelChecked);
+			options.onToggleSelect?.(parallelVerse);
+		} else {
+			options.onSelect(parallelVerse);
 		}
-		parallelRefEl.createSpan({
-			cls: 'verse-ref',
-			text: `${parallelVerse.book_name_short} ${parallelVerse.chapter}:${parallelVerse.verse}`,
-		});
-		parallelRefEl.createSpan({
-			cls: `translation-badge ${parallelVerse.translation.toLowerCase()}`,
-			text: parallelVerse.translation,
-		});
-		renderPastedBadge(parallelRefEl, parallelVerse, options);
-		renderVerseActions(parallelRefEl, parallelVerse, options);
+	});
+}
 
-		// Parallel verse text
-		let parallelText = stripMarkup(parallelVerse.text || '');
+/**
+ * Render a single verse result with optional parallel translation
+ */
+export function renderVerseResult(
+	container: HTMLElement,
+	verse: Verse,
+	options: ResultsViewOptions,
+	isSelected: boolean = false,
+	parallelVerse?: Verse
+): void {
+	container.empty();
 
-		const parallelTextEl = parallelEl.createDiv({ cls: 'verse-text' });
-		renderVerseText(parallelTextEl, parallelText);
+	const resultEl = container.createDiv({
+		cls: `bible-verse-result${isSelected ? ' selected' : ''}`,
+	});
 
-		// Add click handler to parallel verse - selected independently from
-		// the main verse in multi-select mode
-		parallelEl.addEventListener('click', (e) => {
-			e.stopPropagation();
-			if (options.multiSelectMode) {
-				options.onToggleSelect?.(parallelVerse);
-			} else {
-				options.onSelect(parallelVerse);
-			}
-		});
+	renderMainVerse(resultEl, verse, options);
+
+	if (parallelVerse) {
+		renderParallelVerse(resultEl, parallelVerse, options);
 	}
 }
 
@@ -250,15 +273,96 @@ export function renderResultsList(
 	}
 
 	const listEl = container.createDiv({ cls: 'verses-list' });
+	appendRows(listEl, verses, options, 0, selectedIndex);
+}
 
-	verses.forEach((verse, index) => {
-		// parallelResults is index-aligned with verses (not re-matched by
-		// book/chapter/verse - for Psalms/Job/Song of Solomon a correctly
-		// paired verse can have different chapter/verse numbers entirely)
+/**
+ * Append a page of results without touching rows that are already rendered.
+ * `startIndex` keeps `parallelResults` index alignment with the full result
+ * set, and row indexes let later parallel blocks be attached in place.
+ */
+export function appendResultsList(
+	container: HTMLElement,
+	verses: Verse[],
+	options: ResultsViewOptions,
+	startIndex: number = 0
+): void {
+	if (verses.length === 0) return;
+
+	let listEl = container.querySelector<HTMLElement>('.verses-list');
+	if (!listEl) {
+		container.empty();
+		listEl = container.createDiv({ cls: 'verses-list' });
+	}
+
+	appendRows(listEl, verses, options, startIndex);
+}
+
+function appendRows(
+	listEl: HTMLElement,
+	verses: Verse[],
+	options: ResultsViewOptions,
+	startIndex: number,
+	selectedIndex: number = -1
+): void {
+	verses.forEach((verse, offset) => {
+		const index = startIndex + offset;
+		// parallelResults is index-aligned with the full result list (not
+		// re-matched by book/chapter/verse - for Psalms/Job/Song of Solomon a
+		// correctly paired verse can have different chapter/verse numbers)
 		const parallelVerse = options.parallelResults?.[index];
 
-		const verseEl = listEl.createDiv();
-		renderVerseResult(verseEl, verse, options, index === selectedIndex, parallelVerse);
+		const rowEl = listEl.createDiv({ attr: { 'data-row-index': String(index) } });
+		renderVerseResult(rowEl, verse, options, index === selectedIndex, parallelVerse);
+	});
+}
+
+/**
+ * Attach parallel translation blocks to already-rendered primary rows,
+ * without replacing those rows. Rows that already have a parallel block are
+ * left alone, so repeated/late counterpart updates stay idempotent.
+ */
+export function attachParallelResults(
+	container: HTMLElement,
+	verses: Verse[],
+	parallelResults: (Verse | undefined)[] | undefined,
+	options: ResultsViewOptions
+): void {
+	if (!parallelResults) return;
+
+	const listEl = container.querySelector('.verses-list');
+	if (!listEl) return;
+
+	verses.forEach((_verse, index) => {
+		const parallelVerse = parallelResults[index];
+		if (!parallelVerse) return;
+
+		const rowEl = listEl.querySelector(`[data-row-index="${index}"]`);
+		const resultEl = rowEl?.querySelector('.bible-verse-result') as HTMLElement | null;
+		if (!resultEl || resultEl.querySelector('.parallel-verse')) return;
+
+		renderParallelVerse(resultEl, parallelVerse, options);
+	});
+}
+
+/**
+ * Toggle the multi-select state of a single already-rendered verse row,
+ * updating only that row and its checkbox rather than rebuilding the list.
+ */
+export function updateVerseSelection(
+	container: HTMLElement,
+	verse: Verse,
+	selected: boolean
+): void {
+	const key = verseKey(verse);
+	container.querySelectorAll('[data-verse-key]').forEach((el) => {
+		if (el.getAttribute('data-verse-key') !== key) return;
+		el.classList.toggle('checked', selected);
+		const checkbox = el.querySelector('.verse-checkbox');
+		if (checkbox) {
+			checkbox.classList.toggle('checked', selected);
+			setIcon(checkbox as HTMLElement, selected ? 'check' : 'circle');
+		}
 	});
 }
 
@@ -328,34 +432,32 @@ export function renderMultiSelectBar(
 	onCancel: () => void,
 	onCopy: () => void
 ): void {
-	container.empty();
+	const count = container.querySelector<HTMLElement>('.multiselect-count')
+		?? container.createSpan({ cls: 'multiselect-count' });
+	count.setText(`${selectedCount} verse${selectedCount === 1 ? '' : 's'} selected`);
 
-	container.createSpan({
-		cls: 'multiselect-count',
-		text: `${selectedCount} verse${selectedCount === 1 ? '' : 's'} selected`,
-	});
+	const actionsEl = container.querySelector<HTMLElement>('.multiselect-actions')
+		?? container.createDiv({ cls: 'multiselect-actions' });
+	const cancelButton = actionsEl.querySelector<HTMLButtonElement>('.multiselect-cancel')
+		?? actionsEl.createEl('button', { cls: 'multiselect-cancel', text: 'Cancel' });
+	cancelButton.onclick = onCancel;
 
-	const actionsEl = container.createDiv({ cls: 'multiselect-actions' });
-
-	const cancelButton = actionsEl.createEl('button', { text: 'Cancel' });
-	cancelButton.addEventListener('click', onCancel);
-
-	const copyButton = actionsEl.createEl('button', {
-		text: `Copy${selectedCount > 0 ? ` (${selectedCount})` : ''}`,
-	});
+	const copyButton = actionsEl.querySelector<HTMLButtonElement>('.multiselect-copy')
+		?? actionsEl.createEl('button', { cls: 'multiselect-copy' });
+	copyButton.setText(`Copy${selectedCount > 0 ? ` (${selectedCount})` : ''}`);
 	copyButton.disabled = selectedCount === 0;
-	copyButton.addEventListener('click', onCopy);
+	copyButton.onclick = onCopy;
 
-	const insertButton = actionsEl.createEl('button', {
-		cls: 'mod-cta',
-		text: `Insert${selectedCount > 0 ? ` (${selectedCount})` : ''}`,
-	});
+	const insertButton = actionsEl.querySelector<HTMLButtonElement>('.mod-cta')
+		?? actionsEl.createEl('button', { cls: 'mod-cta' });
+	insertButton.setText(`Insert${selectedCount > 0 ? ` (${selectedCount})` : ''}`);
 	insertButton.disabled = selectedCount === 0;
-	insertButton.addEventListener('click', onInsert);
+	insertButton.onclick = onInsert;
 }
 
 /**
- * Update selection highlight
+ * Update selection highlight. Scrolling is immediate (not smooth) so
+ * arrow-key navigation keeps up with repeated key presses.
  */
 export function updateSelection(
 	container: HTMLElement,
@@ -367,7 +469,7 @@ export function updateSelection(
 		if (index === selectedIndex) {
 			el.classList.add('selected');
 			// Scroll into view
-			(el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+			(el as HTMLElement).scrollIntoView({ behavior: 'auto', block: 'nearest' });
 		} else {
 			el.classList.remove('selected');
 		}

@@ -50,6 +50,16 @@ export {
 	getChapter,
 	getRandomVerse,
 	searchVersesKeyword,
+	searchVersesKeywordAsync,
+	createVerseLookup,
 	getRussianNumbering,
 	getBooks,
 } from './database/queries';
+
+// Keyword search corpus (lazy per-database, derived only - never persisted)
+export {
+	prepareSearchCorpus,
+	getSearchCorpusSync,
+	disposeSearchCorpus,
+	normalizeSearchText,
+} from './database/corpus';

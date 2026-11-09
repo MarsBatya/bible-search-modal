@@ -1,19 +1,16 @@
 import initSqlJs from 'sql.js';
 import { Verse, BookMapping, DatabaseInstance } from '../types';
 import { debug } from '../utils/logger';
+import { VERSE_SELECT, mapRowToVerse } from './rows';
+import {
+	getSearchCorpusSync,
+	prepareSearchCorpus,
+	searchCorpus,
+} from './corpus';
 
 /**
  * Database query functions for Bible content
  */
-
-/**
- * Capitalize the first character of a string
- * Handles both Latin and Cyrillic characters
- */
-function capitalizeFirst(str: string): string {
-	if (str.length === 0) return str;
-	return str.charAt(0).toUpperCase() + str.slice(1);
-}
 
 /**
  * Read the `russian_numbering` flag from a module's `info` table.
@@ -39,28 +36,6 @@ export function getRussianNumbering(db: initSqlJs.Database): boolean {
 		if (stmt) stmt.free();
 	}
 }
-
-/**
- * Map a raw verse+book joined row (from sql.js's getAsObject()) to a Verse object
- */
-function mapRowToVerse(row: Record<string, unknown>, translation: DatabaseInstance['translation']): Verse {
-	return {
-		book_number: row.book_number as number,
-		book_name_short: (row.short_name as string) || 'Unknown',
-		book_name_long: (row.long_name as string) || 'Unknown Book',
-		chapter: row.chapter as number,
-		verse: row.verse as number,
-		text: (row.text as string) || '',
-		translation,
-	};
-}
-
-const VERSE_SELECT = `
-	SELECT
-		v.book_number, b.short_name, b.long_name, v.chapter, v.verse, v.text
-	FROM verses v
-	JOIN books b ON v.book_number = b.book_number
-`;
 
 /** Maximum number of keyword matches returned to the search modal. */
 export const KEYWORD_SEARCH_LIMIT = 100;
@@ -263,6 +238,11 @@ export function getRandomVerse(dbInstance: DatabaseInstance): Verse | null {
 /**
  * Search verses by keyword(s)
  * Multiple keywords use AND logic - all must be present
+ *
+ * Matching runs over the lazily built, normalized in-memory corpus (see
+ * database/corpus.ts), so it matches visible verse text rather than hidden
+ * markup or Strong's numbers. This synchronous variant lazily builds the
+ * corpus on first use, for callers such as the CLI that cannot await.
  */
 export function searchVersesKeyword(
 	dbInstance: DatabaseInstance,
@@ -278,61 +258,82 @@ export function searchVersesKeyword(
 		return [];
 	}
 
-	const verses: Verse[] = [];
 	const startTime = performance.now();
-
-	let stmt;
 	try {
-		// Build WHERE clause with LIKE conditions for each keyword
-		// Note: sql.js UPPER() doesn't work for Cyrillic, so we use case-insensitive approach
-		// by searching for both original and capitalized versions of keywords
-		const whereConditions = keywords
-			.map((kw) => {
-				// For Cyrillic text, capitalize the first letter to match database
-				const capitalized = capitalizeFirst(kw);
-				// Create OR condition: match either the keyword as-is or capitalized
-				// This handles both "иаков" -> "Иаков" and "grace" searches
-				if (capitalized !== kw) {
-					return `(v.text LIKE ? OR v.text LIKE ?)`;
-				}
-				return `v.text LIKE ?`;
-			})
-			.join(' AND ');
-
-		const query = `${VERSE_SELECT} WHERE ${whereConditions} ORDER BY v.book_number, v.chapter, v.verse LIMIT ? OFFSET ?`;
-
-		debug('[DB Query] Searching for keywords:', keywords);
-		stmt = dbInstance.db.prepare(query);
-
-		// Bind keywords with wildcard matching (%keyword%)
-		// For Cyrillic, add both lowercase and capitalized versions
-		const params: (string | number)[] = [];
-		for (const kw of keywords) {
-			const capitalized = capitalizeFirst(kw);
-			params.push(`%${kw}%`);
-			if (capitalized !== kw) {
-				params.push(`%${capitalized}%`);
-			}
-		}
-		params.push(limit);
-		params.push(offset);
-
-		stmt.bind(params);
-
-		const rowStartTime = performance.now();
-		while (stmt.step()) {
-			verses.push(mapRowToVerse(stmt.getAsObject(), dbInstance.translation));
-		}
-		const rowTime = performance.now() - rowStartTime;
-
-		const totalTime = performance.now() - startTime;
-		debug(`[DB Query] Found ${verses.length} verses for keywords: ${keywords.join(', ')} (${totalTime.toFixed(2)}ms total, ${rowTime.toFixed(2)}ms rows)`);
+		const corpus = getSearchCorpusSync(dbInstance);
+		const verses = searchCorpus(corpus, keywords, limit, offset);
+		debug(
+			`[DB Query] Found ${verses.length} verses for keywords: ${keywords.join(', ')} (${(performance.now() - startTime).toFixed(2)}ms)`
+		);
+		return verses;
 	} catch (error) {
 		console.error('Error searching verses:', error);
 		console.error('Keywords:', keywords);
-	} finally {
-		if (stmt) stmt.free();
+		return [];
+	}
+}
+
+/**
+ * Async keyword search for the plugin: prepares the corpus in batches that
+ * yield to the event loop instead of blocking the UI on first use.
+ */
+export async function searchVersesKeywordAsync(
+	dbInstance: DatabaseInstance,
+	keywords: string[],
+	limit: number = KEYWORD_SEARCH_LIMIT,
+	offset: number = 0
+): Promise<Verse[]> {
+	if (!dbInstance.isLoaded) {
+		throw new Error('Database not loaded');
 	}
 
+	if (keywords.length === 0) {
+		return [];
+	}
+
+	const corpus = await prepareSearchCorpus(dbInstance);
+	const verses = searchCorpus(corpus, keywords, limit, offset);
+	debug(
+		`[DB Query] Found ${verses.length} verses for keywords: ${keywords.join(', ')} (corpus warm)`
+	);
 	return verses;
+}
+
+/**
+ * A reusable prepared lookup for single verses by reference. Used for
+ * parallel-translation lookups so a whole batch shares one compiled
+ * statement instead of compiling one per verse. Callers must free() it.
+ */
+export interface VerseLookup {
+	get(bookNumber: number, chapter: number, verse: number): Verse | undefined;
+	free(): void;
+}
+
+export function createVerseLookup(dbInstance: DatabaseInstance): VerseLookup {
+	if (!dbInstance.isLoaded) {
+		throw new Error('Database not loaded');
+	}
+
+	const stmt = dbInstance.db.prepare(
+		`${VERSE_SELECT} WHERE v.book_number = ? AND v.chapter = ? AND v.verse = ?`
+	);
+	let freed = false;
+
+	return {
+		get(bookNumber: number, chapter: number, verse: number): Verse | undefined {
+			if (freed) throw new Error('Verse lookup already freed');
+			stmt.bind([bookNumber, chapter, verse]);
+			let result: Verse | undefined;
+			if (stmt.step()) {
+				result = mapRowToVerse(stmt.getAsObject(), dbInstance.translation);
+			}
+			stmt.reset();
+			return result;
+		},
+		free(): void {
+			if (freed) return;
+			freed = true;
+			stmt.free();
+		},
+	};
 }

@@ -404,11 +404,121 @@ function debug(...args) {
   }
 }
 
-// src/database/queries.ts
-function capitalizeFirst(str) {
-  if (str.length === 0) return str;
-  return str.charAt(0).toUpperCase() + str.slice(1);
+// src/database/rows.ts
+var VERSE_SELECT = `
+	SELECT
+		v.book_number, b.short_name, b.long_name, v.chapter, v.verse, v.text
+	FROM verses v
+	JOIN books b ON v.book_number = b.book_number
+`;
+function mapRowToVerse(row, translation) {
+  return {
+    book_number: row.book_number,
+    book_name_short: row.short_name || "Unknown",
+    book_name_long: row.long_name || "Unknown Book",
+    chapter: row.chapter,
+    verse: row.verse,
+    text: row.text || "",
+    translation
+  };
 }
+
+// src/utils/formatter.ts
+function stripMarkup(text) {
+  if (!text) return "";
+  return text.replace(/<pb\s*\/>/gi, "").replace(/<[Ss]>[^<]*<\/[Ss]>/g, "").replace(/<i>(.*?)<\/i>/gi, "$1").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+}
+function highlightKeywords(text, keywords) {
+  if (!text || keywords.length === 0) return text || "";
+  const uniqueKeywords = Array.from(new Set(keywords.map((k) => k.toLowerCase())));
+  const sortedKeywords = uniqueKeywords.sort((a, b) => b.length - a.length);
+  let result = text;
+  const highlightMap = {};
+  let placeholderIndex = 0;
+  const PLACEHOLDER_START = "\uE000";
+  const PLACEHOLDER_END = "\uE001";
+  sortedKeywords.forEach((keyword) => {
+    try {
+      const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(escapedKeyword, "gi");
+      result = result.replace(regex, (match) => {
+        const placeholder = `${PLACEHOLDER_START}${placeholderIndex++}${PLACEHOLDER_END}`;
+        highlightMap[placeholder] = `**${match}**`;
+        return placeholder;
+      });
+    } catch (error) {
+      console.warn(`Failed to highlight keyword "${keyword}":`, error);
+    }
+  });
+  Object.entries(highlightMap).forEach(([placeholder, highlighted]) => {
+    result = result.split(placeholder).join(highlighted);
+  });
+  return result;
+}
+
+// src/database/corpus.ts
+var CORPUS_ORDER = "ORDER BY v.book_number, v.chapter, v.verse";
+var states = /* @__PURE__ */ new WeakMap();
+function stateFor(dbInstance) {
+  let state = states.get(dbInstance);
+  if (!state) {
+    state = { corpus: null, promise: null, disposed: false };
+    states.set(dbInstance, state);
+  }
+  return state;
+}
+function normalizeSearchText(text) {
+  return stripMarkup(text).toLowerCase();
+}
+function normalizeKeyword(keyword) {
+  return keyword.toLowerCase();
+}
+function toEntry(row, translation) {
+  const verse = mapRowToVerse(row, translation);
+  return { verse, normalized: normalizeSearchText(verse.text) };
+}
+function buildCorpusSync(dbInstance) {
+  const entries = [];
+  let stmt;
+  try {
+    stmt = dbInstance.db.prepare(`${VERSE_SELECT} ${CORPUS_ORDER}`);
+    while (stmt.step()) {
+      entries.push(toEntry(stmt.getAsObject(), dbInstance.translation));
+    }
+  } finally {
+    if (stmt) stmt.free();
+  }
+  return { entries };
+}
+function getSearchCorpusSync(dbInstance) {
+  const state = stateFor(dbInstance);
+  if (state.corpus) return state.corpus;
+  if (!dbInstance.isLoaded) throw new Error("Database not loaded");
+  const corpus = buildCorpusSync(dbInstance);
+  state.corpus = corpus;
+  return corpus;
+}
+function searchCorpus(corpus, keywords, limit, offset) {
+  if (limit === 0) return [];
+  const normalizedKeywords = keywords.map(normalizeKeyword).filter((keyword) => keyword.length > 0).sort((a, b) => b.length - a.length);
+  if (normalizedKeywords.length === 0) return [];
+  const verses = [];
+  let skipped = 0;
+  for (const entry of corpus.entries) {
+    if (!normalizedKeywords.every((keyword) => entry.normalized.includes(keyword))) {
+      continue;
+    }
+    if (skipped < offset) {
+      skipped++;
+      continue;
+    }
+    verses.push(entry.verse);
+    if (limit > 0 && verses.length >= limit) break;
+  }
+  return verses;
+}
+
+// src/database/queries.ts
 function getRussianNumbering(db) {
   let stmt;
   try {
@@ -426,23 +536,7 @@ function getRussianNumbering(db) {
     if (stmt) stmt.free();
   }
 }
-function mapRowToVerse(row, translation) {
-  return {
-    book_number: row.book_number,
-    book_name_short: row.short_name || "Unknown",
-    book_name_long: row.long_name || "Unknown Book",
-    chapter: row.chapter,
-    verse: row.verse,
-    text: row.text || "",
-    translation
-  };
-}
-var VERSE_SELECT = `
-	SELECT
-		v.book_number, b.short_name, b.long_name, v.chapter, v.verse, v.text
-	FROM verses v
-	JOIN books b ON v.book_number = b.book_number
-`;
+var KEYWORD_SEARCH_LIMIT = 100;
 function getVerse(dbInstance, bookNumber, chapter, verse) {
   if (!dbInstance.isLoaded) {
     throw new Error("Database not loaded");
@@ -513,51 +607,26 @@ function getVerseRange(dbInstance, bookNumber, chapter, verseStart, verseEnd) {
   }
   return verses;
 }
-function searchVersesKeyword(dbInstance, keywords, limit = 100) {
+function searchVersesKeyword(dbInstance, keywords, limit = KEYWORD_SEARCH_LIMIT, offset = 0) {
   if (!dbInstance.isLoaded) {
     throw new Error("Database not loaded");
   }
   if (keywords.length === 0) {
     return [];
   }
-  const verses = [];
   const startTime = performance.now();
-  let stmt;
   try {
-    const whereConditions = keywords.map((kw) => {
-      const capitalized = capitalizeFirst(kw);
-      if (capitalized !== kw) {
-        return `(v.text LIKE ? OR v.text LIKE ?)`;
-      }
-      return `v.text LIKE ?`;
-    }).join(" AND ");
-    const query = `${VERSE_SELECT} WHERE ${whereConditions} LIMIT ?`;
-    debug("[DB Query] Searching for keywords:", keywords);
-    stmt = dbInstance.db.prepare(query);
-    const params = [];
-    for (const kw of keywords) {
-      const capitalized = capitalizeFirst(kw);
-      params.push(`%${kw}%`);
-      if (capitalized !== kw) {
-        params.push(`%${capitalized}%`);
-      }
-    }
-    params.push(limit);
-    stmt.bind(params);
-    const rowStartTime = performance.now();
-    while (stmt.step()) {
-      verses.push(mapRowToVerse(stmt.getAsObject(), dbInstance.translation));
-    }
-    const rowTime = performance.now() - rowStartTime;
-    const totalTime = performance.now() - startTime;
-    debug(`[DB Query] Found ${verses.length} verses for keywords: ${keywords.join(", ")} (${totalTime.toFixed(2)}ms total, ${rowTime.toFixed(2)}ms rows)`);
+    const corpus = getSearchCorpusSync(dbInstance);
+    const verses = searchCorpus(corpus, keywords, limit, offset);
+    debug(
+      `[DB Query] Found ${verses.length} verses for keywords: ${keywords.join(", ")} (${(performance.now() - startTime).toFixed(2)}ms)`
+    );
+    return verses;
   } catch (error) {
     console.error("Error searching verses:", error);
     console.error("Keywords:", keywords);
-  } finally {
-    if (stmt) stmt.free();
+    return [];
   }
-  return verses;
 }
 
 // src/search/engine.ts
@@ -729,39 +798,6 @@ var NT_BOOKS = [
   BOOK_MAPPINGS.REVELATION
 ];
 var ALL_BOOKS = [...OT_BOOKS, ...NT_BOOKS];
-
-// src/utils/formatter.ts
-function stripMarkup(text) {
-  if (!text) return "";
-  return text.replace(/<pb\s*\/>/gi, "").replace(/<[Ss]>[^<]*<\/[Ss]>/g, "").replace(/<i>(.*?)<\/i>/gi, "$1").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
-}
-function highlightKeywords(text, keywords) {
-  if (!text || keywords.length === 0) return text || "";
-  const uniqueKeywords = Array.from(new Set(keywords.map((k) => k.toLowerCase())));
-  const sortedKeywords = uniqueKeywords.sort((a, b) => b.length - a.length);
-  let result = text;
-  const highlightMap = {};
-  let placeholderIndex = 0;
-  const PLACEHOLDER_START = "\uE000";
-  const PLACEHOLDER_END = "\uE001";
-  sortedKeywords.forEach((keyword) => {
-    try {
-      const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const regex = new RegExp(escapedKeyword, "gi");
-      result = result.replace(regex, (match) => {
-        const placeholder = `${PLACEHOLDER_START}${placeholderIndex++}${PLACEHOLDER_END}`;
-        highlightMap[placeholder] = `**${match}**`;
-        return placeholder;
-      });
-    } catch (error) {
-      console.warn(`Failed to highlight keyword "${keyword}":`, error);
-    }
-  });
-  Object.entries(highlightMap).forEach(([placeholder, highlighted]) => {
-    result = result.split(placeholder).join(highlighted);
-  });
-  return result;
-}
 
 // cli/index.ts
 var colors = {
