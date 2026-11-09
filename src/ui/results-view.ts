@@ -488,6 +488,24 @@ export function showLoading(container: HTMLElement): void {
 }
 
 /**
+ * Show a neutral empty state. This is not an error: the query was valid but
+ * matched nothing, so keep the tone helpful and suggest query shapes.
+ */
+export function showNoResults(container: HTMLElement, query?: string): void {
+	container.empty();
+	const empty = container.createDiv({ cls: 'no-results' });
+	empty.createDiv({
+		text: query?.trim()
+			? `No verses found for “${query.trim()}”.`
+			: 'No verses found.',
+	});
+	empty.createDiv({
+		cls: 'no-results-hint',
+		text: 'Try a book and chapter (e.g. “John 3”), a reference (e.g. “John 3:16”), or keywords (e.g. “grace faith”).',
+	});
+}
+
+/**
  * Show error state
  */
 export function showError(container: HTMLElement, error: string): void {

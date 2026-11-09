@@ -77,9 +77,22 @@ npm run lint
 After installing, configure the plugin in Settings → Bible Search:
 
 ### Database Configuration
-1. Enter URLs for KJV and RST database files
-2. Click "Download KJV Database" and "Download RST Database"
-3. Databases are cached locally in `.obsidian/plugins/bible-search-modal/`
+
+Search requires a local copy of at least one SQLite database (KJV or RST). You can set either one up in **Settings → Bible Search → Database configuration**:
+
+1. **Import local database**: select a `.sqlite3` / `.sqlite` file from your device. The filename and its casing don't matter (`.SQlite3` works too) - the file's contents are validated before it replaces anything, then saved under the canonical plugin filename (`KJV+.sqlite3` or `RST+.sqlite3`).
+2. **Download from a URL**: optionally enter a KJV and/or RST database URL, then select **Download**. URLs are never pre-filled with real defaults, and nothing is downloaded automatically.
+
+Each translation shows one of four states:
+
+- **Not configured** - no local database is available yet
+- **Loading** - a cached database is being read
+- **Ready** - the database is available for searches
+- **Failed** - the file was missing or invalid; read the message and retry or import a valid file
+
+Import and download actions are disabled while an installation is running. A failed import, download, or write leaves the previous working database in place. Databases are cached locally in `.obsidian/plugins/bible-search-modal/`.
+
+If a search is opened before any database is configured, the modal shows the same import/download/retry controls instead of an error.
 
 ### Search & Display
 - **Verse Format Template**: Customize how verses appear when pasted
@@ -114,6 +127,8 @@ Rom 8              → Entire chapter
 grace faith        → All verses with both "grace" AND "faith"
 love               → All verses containing "love"
 ```
+
+Keyword matching is a case-insensitive literal substring search over the **visible verse text** (Strong's numbers and markup are ignored). All words must appear in the same verse (AND logic). `%` and `_` are treated as ordinary characters, not SQL wildcards. Cyrillic text is matched case-insensitively too, and the same rules apply in the plugin and the CLI. Results load in batches of 100; use **Load more results** to continue.
 
 ### Navigation & Insertion
 
@@ -222,7 +237,7 @@ CREATE TABLE verses (
 - Address parsing with fuzzy book name matching (Levenshtein distance)
 - Support for abbreviated book names and common variations
 - Multi-word keyword search with AND logic
-- Prefix matching for keywords
+- Case-insensitive literal substring matching over visible verse text (Strong's markup excluded; `%`/`_` are literal)
 
 ## Dependencies
 

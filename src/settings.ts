@@ -1,7 +1,18 @@
-import { App, PluginSettingTab, Setting, Notice } from 'obsidian';
+import { App, ButtonComponent, PluginSettingTab, Setting, Notice } from 'obsidian';
+import type { SettingDefinitionRender } from 'obsidian';
 import type BibleSearchPlugin from './main';
 import { getDefaultVerseFormat, validateTemplate } from './utils/formatter';
 import { renderLogo } from './ui/logo';
+import {
+	databaseStatusDescription,
+	databaseStatusLabel,
+	renderDatabaseSetupPanel,
+} from './ui/database-setup';
+import type { DatabaseSetupPanel } from './ui/database-setup';
+import type { Translation } from './types';
+import { normalizeDatabaseUrl } from './utils/database-url';
+
+export { normalizeDatabaseUrl } from './utils/database-url';
 
 export interface BibleSearchSettings {
 	kjvDbUrl: string;
@@ -13,8 +24,8 @@ export interface BibleSearchSettings {
 }
 
 export const DEFAULT_SETTINGS: BibleSearchSettings = {
-	kjvDbUrl: 'HTTPS://example.com/kjv+.sqlite3',
-	rstDbUrl: 'HTTPS://example.com/rst+.sqlite3',
+	kjvDbUrl: '',
+	rstDbUrl: '',
 	verseFormat: getDefaultVerseFormat(),
 	showParallelByDefault: true, // Show both translations by default
 	highlightMatches: true,
@@ -23,10 +34,89 @@ export const DEFAULT_SETTINGS: BibleSearchSettings = {
 
 export class BibleSearchSettingTab extends PluginSettingTab {
 	plugin: BibleSearchPlugin;
+	private databaseSetupPanel: DatabaseSetupPanel | null = null;
+	private databaseRowUpdaters = new Set<() => void>();
 
 	constructor(app: App, plugin: BibleSearchPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
+	}
+
+	hide(): void {
+		this.databaseSetupPanel?.destroy();
+		this.databaseSetupPanel = null;
+		this.databaseRowUpdaters.clear();
+	}
+
+	private refreshDatabaseRows(): void {
+		for (const update of this.databaseRowUpdaters) update();
+		this.databaseSetupPanel?.update();
+	}
+
+	/**
+	 * Declarative status row used by Obsidian 1.13+'s settings renderer,
+	 * including Import/Download/Retry actions that disable while busy.
+	 */
+	private databaseDefinition(translation: Translation): SettingDefinitionRender {
+		return {
+			name: `${translation} database`,
+			aliases: [
+				`import ${translation} database`,
+				`download ${translation} database`,
+				`retry ${translation} database`,
+				`${translation} sqlite`,
+			],
+			desc: databaseStatusDescription(
+				translation,
+				this.plugin.getDatabaseStatus(translation),
+			),
+			render: (setting) => {
+				const importButton = new ButtonComponent(setting.controlEl)
+					.setButtonText('Import local database')
+					.onClick(() => {
+						void this.plugin.importDatabaseFromPicker(translation);
+					});
+				const downloadButton = new ButtonComponent(setting.controlEl)
+					.setButtonText('Download')
+					.onClick(() => {
+						void this.plugin.downloadDatabase(translation).catch((error) => {
+							new Notice(`Failed to download ${translation} database: ${String(error)}`);
+						});
+					});
+				const retryButton = new ButtonComponent(setting.controlEl)
+					.setButtonText('Retry')
+					.onClick(() => {
+						void this.plugin.retryDatabase(translation).catch((error) => {
+							new Notice(`Failed to load ${translation} database: ${String(error)}`);
+						});
+					});
+
+				const update = () => {
+					const status = this.plugin.getDatabaseStatus(translation);
+					const busy = status.state === 'loading';
+					const configured = this.plugin.isDatabaseDownloadConfigured(translation);
+					setting.setName(`${translation} database (${databaseStatusLabel(status)})`);
+					setting.descEl.setText(databaseStatusDescription(translation, status));
+					importButton.buttonEl.disabled = busy;
+					downloadButton.buttonEl.disabled = busy || !configured;
+					downloadButton.buttonEl.title = configured
+						? `Download the ${translation} database from the configured URL`
+						: `Enter a ${translation} database URL to enable downloads`;
+					retryButton.buttonEl.disabled = busy;
+					retryButton.buttonEl.classList.toggle('is-hidden', status.state !== 'failed');
+				};
+
+				const unsubscribe = this.plugin.onDatabaseStatusChange((changed) => {
+					if (changed === translation) update();
+				});
+				this.databaseRowUpdaters.add(update);
+				update();
+				return () => {
+					this.databaseRowUpdaters.delete(update);
+					unsubscribe();
+				};
+			},
+		};
 	}
 
 	/**
@@ -49,9 +139,13 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 				return;
 			}
 		}
+		if (key === 'kjvDbUrl' || key === 'rstDbUrl') {
+			value = normalizeDatabaseUrl(value as string);
+		}
 		// @ts-expect-error - value type depends on the specific key being set
 		this.plugin.settings[key as keyof BibleSearchSettings] = value;
 		await this.plugin.saveSettings();
+		if (key === 'kjvDbUrl' || key === 'rstDbUrl') this.refreshDatabaseRows();
 	}
 
 	/**
@@ -66,44 +160,24 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 				items: [
 					{
 						name: 'Kjv database URL',
-						desc: 'URL to kjv+.sqlite3 database file',
+						desc: 'Optional URL for an explicit KJV download (not a default)',
 						control: {
 							type: 'text',
 							key: 'kjvDbUrl',
-							placeholder: 'HTTPS://example.com/kjv+.sqlite3'
+							placeholder: 'https://example.com/kjv+.sqlite3'
 						}
 					},
 					{
 						name: 'Rst database URL',
-						desc: 'URL to rst+.sqlite3 database file (russian)',
+						desc: 'Optional URL for an explicit RST download (not a default)',
 						control: {
 							type: 'text',
 							key: 'rstDbUrl',
-							placeholder: 'HTTPS://example.com/rst+.sqlite3'
+							placeholder: 'https://example.com/rst+.sqlite3'
 						}
 					},
-					{
-						name: 'Download kjv database',
-						desc: 'Download and cache kjv database locally',
-						action: async () => {
-							try {
-								await this.plugin.downloadDatabase('KJV', this.plugin.settings.kjvDbUrl);
-							} catch (error) {
-								new Notice(`Failed to download KJV database: ${String(error)}`);
-							}
-						}
-					},
-					{
-						name: 'Download rst database',
-						desc: 'Download and cache rst database locally',
-						action: async () => {
-							try {
-								await this.plugin.downloadDatabase('RST', this.plugin.settings.rstDbUrl);
-							} catch (error) {
-								new Notice(`Failed to download RST database: ${String(error)}`);
-							}
-						}
-					}
+					this.databaseDefinition('KJV'),
+					this.databaseDefinition('RST'),
 				]
 			},
 			{
@@ -163,56 +237,38 @@ export class BibleSearchSettingTab extends PluginSettingTab {
 		// Database Configuration Section
 		new Setting(containerEl).setName('Database configuration').setHeading();
 
+		this.databaseSetupPanel?.destroy();
+		this.databaseSetupPanel = renderDatabaseSetupPanel(containerEl, this.plugin, {
+			heading: 'Database status',
+			intro: 'Import a local SQLite file, or enter an optional download URL below. Downloads only start when you select Download.',
+		});
+
 		new Setting(containerEl)
 			.setName('Kjv database URL')
-			.setDesc('URL to kjv+.sqlite3 database file')
+			.setDesc('Optional URL for an explicit kjv download. Downloads never start automatically.')
 			.addText((text) =>
 				text
 					.setPlaceholder('HTTPS://example.com/kjv+.sqlite3')
 					.setValue(this.plugin.settings.kjvDbUrl)
 					.onChange(async (value) => {
-						this.plugin.settings.kjvDbUrl = value;
+						this.plugin.settings.kjvDbUrl = normalizeDatabaseUrl(value);
 						await this.plugin.saveSettings();
+						this.refreshDatabaseRows();
 					}),
 			);
 
 		new Setting(containerEl)
 			.setName('Rst database URL')
-			.setDesc('URL to rst+.sqlite3 database file (russian)')
+			.setDesc('Optional URL for an explicit rst download. Downloads never start automatically.')
 			.addText((text) =>
 				text
 					.setPlaceholder('HTTPS://example.com/rst+.sqlite3')
 					.setValue(this.plugin.settings.rstDbUrl)
 					.onChange(async (value) => {
-						this.plugin.settings.rstDbUrl = value;
+						this.plugin.settings.rstDbUrl = normalizeDatabaseUrl(value);
 						await this.plugin.saveSettings();
+						this.refreshDatabaseRows();
 					}),
-			);
-
-		new Setting(containerEl)
-			.setName('Download kjv database')
-			.setDesc('Download and cache kjv database locally')
-			.addButton((button) =>
-				button.setButtonText('Download').onClick(async () => {
-					try {
-						await this.plugin.downloadDatabase('KJV', this.plugin.settings.kjvDbUrl);
-					} catch (error) {
-						new Notice(`Failed to download KJV database: ${String(error)}`);
-					}
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName('Download rst database')
-			.setDesc('Download and cache rst database locally')
-			.addButton((button) =>
-				button.setButtonText('Download').onClick(async () => {
-					try {
-						await this.plugin.downloadDatabase('RST', this.plugin.settings.rstDbUrl);
-					} catch (error) {
-						new Notice(`Failed to download RST database: ${String(error)}`);
-					}
-				}),
 			);
 
 		// Search & Display Section

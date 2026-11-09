@@ -16,8 +16,12 @@ import {
 	updateSelection,
 	updateVerseSelection,
 	showError,
+	showNoResults,
 } from './results-view';
 import type { ResultsViewOptions } from './results-view';
+import { renderDatabaseSetupPanel } from './database-setup';
+import type { DatabaseSetupPanel } from './database-setup';
+import type { DatabaseStatus } from '../database/status';
 
 /**
  * Bible Search Modal - Main UI component for searching and inserting verses
@@ -66,6 +70,7 @@ export class BibleSearchModal extends Modal {
 	private indicatorTimer: number | null = null;
 	private currentSearchAbortController: AbortController | null = null;
 	private currentPrimaryPromise: Promise<void> = Promise.resolve();
+	private databaseSetupPanel: DatabaseSetupPanel | null = null;
 
 	// Debounce delay (ms) - adjust for mobile responsiveness
 	private readonly DEBOUNCE_DELAY = 150;
@@ -145,7 +150,21 @@ export class BibleSearchModal extends Modal {
 			this.searchInput.value = prefillQuery;
 			this.searchInput.select();
 			this.handleSearch(prefillQuery, true);
+		} else {
+			this.checkEmptySetup();
 		}
+	}
+
+	private checkEmptySetup(): void {
+		const requestId = this.requestId;
+		const engine = this.plugin.getDbEngine();
+		void Promise.all([
+			engine.ensureDb('KJV').catch(() => null),
+			engine.ensureDb('RST').catch(() => null),
+		]).then((databases) => {
+			if (this.isCurrent(requestId) && !this.searchQuery.trim()
+				&& !databases.some((database) => database?.isLoaded)) this.showDatabaseSetup();
+		});
 	}
 
 	/**
@@ -166,6 +185,7 @@ export class BibleSearchModal extends Modal {
 			this.statusContainer.empty();
 			this.sourceContainer.empty();
 			this.resultsContainer.removeAttribute('aria-busy');
+			this.checkEmptySetup();
 			return;
 		}
 
@@ -211,6 +231,8 @@ export class BibleSearchModal extends Modal {
 	}
 
 	private clearResultData(): void {
+		this.databaseSetupPanel?.destroy();
+		this.databaseSetupPanel = null;
 		this.displayedRequestId = -1;
 		this.resultSource = undefined;
 		this.currentResults = [];
@@ -247,8 +269,7 @@ export class BibleSearchModal extends Modal {
 					this.finishPending(requestId);
 					primaryDone();
 					if (result.results.length === 0) {
-						this.resultsContainer.empty();
-						this.resultsContainer.createDiv({ cls: 'no-results', text: 'No verses found' });
+						showNoResults(this.resultsContainer, query);
 					} else this.renderResults();
 				},
 				(result) => {
@@ -262,12 +283,57 @@ export class BibleSearchModal extends Modal {
 			if (isCurrent()) {
 				this.finishPending(requestId);
 				this.sourceContainer.empty();
-				if (!(error instanceof MissingDatabaseError)) console.error('Search error:', error);
-				showError(this.resultsContainer, error instanceof Error ? error.message : String(error));
+				if (error instanceof MissingDatabaseError) {
+					this.showDatabaseSetup();
+				} else {
+					console.error('Search error:', error);
+					showError(this.resultsContainer, error instanceof Error ? error.message : String(error));
+				}
 			}
 		} finally {
 			primaryDone();
 		}
+	}
+
+	/**
+	 * Replace the result area with actionable database setup controls. Shown
+	 * when a search can't run because no source database is available.
+	 */
+	private showDatabaseSetup(): void {
+		this.databaseSetupPanel?.destroy();
+		this.resultsContainer.empty();
+		this.databaseSetupPanel = renderDatabaseSetupPanel(
+			this.resultsContainer,
+			{
+				getDatabaseStatus: (translation) => this.plugin.getDatabaseStatus(translation),
+				isDatabaseDownloadConfigured: (translation) =>
+					this.plugin.isDatabaseDownloadConfigured(translation),
+				importDatabaseFromPicker: async (translation) => {
+					const imported = await this.plugin.importDatabaseFromPicker(translation);
+					if (imported) this.retrySearchAfterSetup();
+					return imported;
+				},
+				downloadDatabase: async (translation) => {
+					await this.plugin.downloadDatabase(translation);
+					this.retrySearchAfterSetup();
+				},
+				retryDatabase: async (translation) => {
+					await this.plugin.retryDatabase(translation);
+					this.retrySearchAfterSetup();
+				},
+				onDatabaseStatusChange: (listener: (translation: Translation, status: DatabaseStatus) => void) =>
+					this.plugin.onDatabaseStatusChange(listener),
+			},
+			{
+				heading: 'Bible database setup',
+				intro: 'Search needs a local KJV or RST database. Import a .sqlite3 file, or configure a download URL in plugin settings.',
+			},
+		);
+	}
+
+	private retrySearchAfterSetup(): void {
+		if (this.closed || !this.searchQuery.trim()) return;
+		this.handleSearch(this.searchQuery, true);
 	}
 
 	/**
@@ -288,6 +354,7 @@ export class BibleSearchModal extends Modal {
 		this.statusContainer.empty();
 		this.sourceContainer.empty();
 		this.resultsContainer.removeAttribute('aria-busy');
+		this.checkEmptySetup();
 	}
 
 	/**

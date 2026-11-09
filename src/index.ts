@@ -13,7 +13,10 @@ export type {
 	DatabaseInstance,
 	ParsedReference,
 	BookMapping,
+	Translation,
+	TranslationSelection,
 } from './types';
+export type { DatabaseStatus, DatabaseStatusState } from './database/status';
 
 // Versification (KJV ⇄ RST mapping for Psalms, Job, Song of Solomon)
 export { convertVersification } from './utils/versification';

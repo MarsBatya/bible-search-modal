@@ -1,11 +1,18 @@
 import { Notice, Plugin, MarkdownView, MarkdownFileInfo, Editor } from 'obsidian';
-import { DEFAULT_SETTINGS, BibleSearchSettings, BibleSearchSettingTab } from './settings';
+import {
+	DEFAULT_SETTINGS,
+	BibleSearchSettings,
+	BibleSearchSettingTab,
+} from './settings';
+import { normalizeDatabaseUrl } from './utils/database-url';
 import { DatabaseEngine, getEngineInstance } from './database/engine';
 import { getRandomVerse } from './database/queries';
+import { pickDatabaseFile } from './database/file-picker';
+import type { DatabaseStatus } from './database/status';
 import { formatVerse } from './utils/formatter';
 import { verseKey } from './utils/verse-key';
 import { RecentVerseTracker } from './utils/recent-verses';
-import { DatabaseInstance } from './types';
+import { DatabaseInstance, Translation } from './types';
 import { BibleSearchModal } from './ui/modal';
 
 export default class BibleSearchPlugin extends Plugin {
@@ -95,6 +102,11 @@ export default class BibleSearchPlugin extends Plugin {
 			DEFAULT_SETTINGS,
 			(await this.loadData()) as Partial<BibleSearchSettings>,
 		);
+		// Older builds persisted the example.com URLs as if they were real
+		// defaults. Treat those (and only those) as unconfigured, while
+		// preserving any genuine user-entered URL.
+		this.settings.kjvDbUrl = normalizeDatabaseUrl(this.settings.kjvDbUrl);
+		this.settings.rstDbUrl = normalizeDatabaseUrl(this.settings.rstDbUrl);
 	}
 
 	async saveSettings(): Promise<void> {
@@ -203,11 +215,70 @@ export default class BibleSearchPlugin extends Plugin {
 	}
 
 	/**
-	 * Download database from URL
+	 * Download database from URL. An empty/placeholder URL is rejected rather
+	 * than silently attempting example.com.
 	 */
-	async downloadDatabase(translation: 'KJV' | 'RST', url: string): Promise<void> {
-		await this.dbEngine.initSqlJs();
-		await this.dbEngine.fetchDb(translation, url);
+	async downloadDatabase(translation: Translation, url?: string): Promise<void> {
+		const resolvedUrl = normalizeDatabaseUrl(url ?? this.getDatabaseUrl(translation));
+		if (!resolvedUrl) {
+			new Notice(`Enter a ${translation} database URL in settings first.`);
+			throw new Error(`No ${translation} database URL configured`);
+		}
+		await this.dbEngine.fetchDb(translation, resolvedUrl);
+	}
+
+	/** URL currently configured for a translation, or an empty string. */
+	getDatabaseUrl(translation: Translation): string {
+		return normalizeDatabaseUrl(
+			translation === 'KJV' ? this.settings.kjvDbUrl : this.settings.rstDbUrl,
+		);
+	}
+
+	/** Whether an explicit download can be started for this translation. */
+	isDatabaseDownloadConfigured(translation: Translation): boolean {
+		return this.getDatabaseUrl(translation).length > 0;
+	}
+
+	/** Current per-translation database state for settings and setup UI. */
+	getDatabaseStatus(translation: Translation): DatabaseStatus {
+		return this.dbEngine.getStatus(translation);
+	}
+
+	/** Subscribe to database status changes (for settings and the modal). */
+	onDatabaseStatusChange(listener: Parameters<DatabaseEngine['onStatusChange']>[0]): () => void {
+		return this.dbEngine.onStatusChange(listener);
+	}
+
+	/**
+	 * Import a user-selected local SQLite file for a translation. The file's
+	 * own name/casing doesn't matter; contents are validated and saved under
+	 * the canonical plugin filename.
+	 */
+	async importDatabase(translation: Translation, file: File): Promise<void> {
+		const data = await file.arrayBuffer();
+		await this.dbEngine.importDb(translation, data);
+		new Notice(`${translation} database imported successfully`);
+	}
+
+	/**
+	 * Open the file picker and import the selected database. Returns false when
+	 * the user cancels, so callers can keep their current UI state.
+	 */
+	async importDatabaseFromPicker(translation: Translation): Promise<boolean> {
+		try {
+			const imported = await this.dbEngine.importLocalFile(translation, pickDatabaseFile);
+			if (imported) new Notice(`${translation} database imported successfully`);
+			return imported;
+		} catch (error) {
+			console.error(`Failed to import ${translation} database:`, error);
+			new Notice(`Failed to import ${translation} database: ${String(error)}`);
+			return false;
+		}
+	}
+
+	/** Retry loading a translation from the cached file. */
+	async retryDatabase(translation: Translation): Promise<void> {
+		await this.dbEngine.loadDb(translation);
 	}
 
 	/**

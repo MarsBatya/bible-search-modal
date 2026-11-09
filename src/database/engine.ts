@@ -5,6 +5,30 @@ import { getWasmBinary } from './wasm-loader';
 import { getRussianNumbering } from './queries';
 import { disposeSearchCorpus } from './corpus';
 import { debug } from '../utils/logger';
+import type { DatabaseStatus, DatabaseStatusListener } from './status';
+
+/** Canonical on-disk names. Imports are always saved under these. */
+export const CANONICAL_DATABASE_FILES: Record<Translation, string> = {
+	KJV: 'KJV+.sqlite3',
+	RST: 'RST+.sqlite3',
+};
+
+/** Name variants understood in the cache, for files copied in case-insensitively. */
+function cachedFileNames(translation: Translation): string[] {
+	const base = translation === 'KJV' ? 'KJV+' : 'RST+';
+	const bases = [base, base.toLowerCase()];
+	const extensions = ['.sqlite3', '.SQlite3', '.SQLite3', '.SQLITE3'];
+	return bases.flatMap((prefix) => extensions.map((extension) => `${prefix}${extension}`));
+}
+
+function isMissingFileError(error: unknown): boolean {
+	const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+	return /enoent|not found|no such file|does not exist|cannot find/.test(message);
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
 
 /**
  * Database Engine for managing sql.js SQLite instances
@@ -20,6 +44,8 @@ export class DatabaseEngine {
 	private operations: Map<Translation, Promise<unknown>> = new Map();
 	private disposed = false;
 	private initPromise: Promise<void> | null = null;
+	private statuses = new Map<Translation, DatabaseStatus>();
+	private statusListeners = new Set<DatabaseStatusListener>();
 
 	/** Open a SQLite file and verify it contains the Bible tables and usable data. */
 	private createValidatedInstance(
@@ -74,6 +100,43 @@ export class DatabaseEngine {
 		if (this.disposed) throw new Error('Database engine has been disposed');
 	}
 
+	/** Current availability of a translation's database. */
+	getStatus(translation: Translation): DatabaseStatus {
+		const status = this.statuses.get(translation);
+		if (status) return status;
+		const instance = this.databases.get(translation);
+		return instance?.isLoaded ? { state: 'ready' } : { state: 'not-configured' };
+	}
+
+	/** Alias used by UI/status callers. */
+	getDatabaseStatus(translation: Translation): DatabaseStatus {
+		return this.getStatus(translation);
+	}
+
+	/** Subscribe to database status changes. Returns an unsubscribe function. */
+	onStatusChange(listener: DatabaseStatusListener): () => void {
+		this.statusListeners.add(listener);
+		return () => this.statusListeners.delete(listener);
+	}
+
+	private setStatus(translation: Translation, status: DatabaseStatus): void {
+		const previous = this.statuses.get(translation);
+		if (previous?.state === status.state && previous.error === status.error) return;
+		this.statuses.set(translation, status);
+		for (const listener of this.statusListeners) {
+			try {
+				listener(translation, status);
+			} catch (error) {
+				console.error('Database status listener failed:', error);
+			}
+		}
+	}
+
+	private markFailure(translation: Translation, error: unknown): void {
+		if (this.disposed) return;
+		this.setStatus(translation, { state: 'failed', error: errorMessage(error) });
+	}
+
 	private serialize<T>(translation: Translation, operation: () => Promise<T>): Promise<T> {
 		const previous = this.operations.get(translation);
 		const running = (async () => {
@@ -98,6 +161,7 @@ export class DatabaseEngine {
 			instance.db.close();
 		}
 		this.databases.clear();
+		this.statusListeners.clear();
 		if (engineInstance === this) engineInstance = null;
 	}
 
@@ -176,6 +240,20 @@ export class DatabaseEngine {
 		// Return cached instance if already loaded
 		const cached = this.databases.get(translation);
 		if (cached?.isLoaded) {
+			if (!this.operations.has(translation) && this.getStatus(translation).state === 'failed') {
+				return this.serialize(translation, async () => {
+					try {
+						await this.recoverBackup(translation);
+						this.assertActive();
+						this.setStatus(translation, { state: 'ready' });
+						return cached;
+					} catch (error) {
+						this.markFailure(translation, error);
+						throw error;
+					}
+				});
+			}
+			if (!this.operations.has(translation)) this.setStatus(translation, { state: 'ready' });
 			return Promise.resolve(cached);
 		}
 
@@ -184,6 +262,8 @@ export class DatabaseEngine {
 		if (existing) {
 			return existing;
 		}
+
+		this.setStatus(translation, { state: 'loading' });
 
 		// Create loading promise and cache it
 		const loadPromise = this.serialize(translation, () => this.loadDbInternal(translation));
@@ -200,25 +280,85 @@ export class DatabaseEngine {
 	}
 
 	/**
+	 * Find and read an existing cached database. Looks for the canonical name
+	 * first, then common casing variants (the bundled sample files use
+	 * `KJV+.SQlite3`), so databases copied in by hand keep working.
+	 */
+	private async readCachedDatabase(translation: Translation): Promise<Uint8Array | null> {
+		const adapter = this.vault.adapter;
+		const candidates = cachedFileNames(translation);
+		let filePath: string | null = null;
+
+		const exists = (adapter as unknown as { exists?: (path: string) => Promise<boolean> }).exists;
+		if (typeof exists === 'function') {
+			await this.recoverBackup(translation);
+			for (const name of candidates) {
+				if (await exists.call(adapter, `${this.pluginDataDir}${name}`)) {
+					filePath = `${this.pluginDataDir}${name}`;
+					break;
+				}
+			}
+			if (!filePath) {
+				// Last resort: list the folder and match the canonical filename
+				// case-insensitively. This accepts any casing a user copied in.
+				const list = (adapter as unknown as {
+					list?: (path: string) => Promise<{ files: string[] }>;
+				}).list;
+				if (typeof list === 'function') {
+					try {
+						const listing = await list.call(adapter, this.pluginDataDir);
+						const canonical = CANONICAL_DATABASE_FILES[translation].toLowerCase();
+						const match = listing.files.find(
+							(path) => path.split(/[\\/]/).pop()?.toLowerCase() === canonical,
+						);
+						if (match) filePath = match;
+					} catch {
+						// Folder may not exist yet.
+					}
+				}
+			}
+			if (!filePath) return null;
+		} else {
+			// Older/minimal adapters without exists(): try the canonical name.
+			filePath = `${this.pluginDataDir}${CANONICAL_DATABASE_FILES[translation]}`;
+		}
+
+		try {
+			const fileData = await adapter.readBinary(filePath);
+			return new Uint8Array(fileData);
+		} catch (error) {
+			if (isMissingFileError(error)) return null;
+			throw error;
+		}
+	}
+
+	/**
 	 * Internal database loading logic
 	 */
 	private async loadDbInternal(translation: 'KJV' | 'RST'): Promise<DatabaseInstance | null> {
 		// A preceding installation may have published while this load was queued.
 		const cached = this.databases.get(translation);
-		if (cached?.isLoaded) return cached;
-		const sqlJs = await this.getSqlJs();
+		if (cached?.isLoaded) {
+			this.setStatus(translation, { state: 'ready' });
+			return cached;
+		}
 
-		const fileName = translation === 'KJV' ? 'KJV+.sqlite3' : 'RST+.sqlite3';
-		const filePath = `${this.pluginDataDir}${fileName}`;
+		let sqlJs: initSqlJs.SqlJsStatic;
+		try {
+			sqlJs = await this.getSqlJs();
+		} catch (error) {
+			this.markFailure(translation, error);
+			throw error;
+		}
 
 		try {
-			debug(`[DB] Loading ${translation} database from cache: ${filePath}`);
-
-			// Load as binary data
-			const fileData = await this.vault.adapter.readBinary(filePath);
-
-			// Create Uint8Array from ArrayBuffer
-			const data = new Uint8Array(fileData);
+			debug(`[DB] Loading ${translation} database from cache`);
+			const data = await this.readCachedDatabase(translation);
+			if (!data) {
+				debug(`${translation} database not found in cache`);
+				this.setStatus(translation, { state: 'not-configured' });
+				return null;
+			}
 			debug(`[DB] Loaded ${translation} database file: ${data.byteLength} bytes`);
 
 			this.assertActive();
@@ -230,12 +370,14 @@ export class DatabaseEngine {
 				throw new Error('Database engine has been disposed');
 			}
 			this.databases.set(translation, instance);
+			this.setStatus(translation, { state: 'ready' });
 
 			debug(`Loaded ${translation} database from cache`);
 			return instance;
 		} catch (error) {
-			debug(`${translation} database not found in cache:`, String(error));
 			if (this.disposed) throw error;
+			debug(`${translation} database could not be loaded:`, String(error));
+			this.markFailure(translation, error);
 			return null;
 		}
 	}
@@ -244,7 +386,16 @@ export class DatabaseEngine {
 	 * Download and cache database from URL
 	 */
 	async fetchDb(translation: 'KJV' | 'RST', url: string): Promise<DatabaseInstance> {
-		return this.serialize(translation, () => this.fetchDbInternal(translation, url));
+		this.assertActive();
+		this.setStatus(translation, { state: 'loading' });
+		return this.serialize(translation, async () => {
+			try {
+				return await this.fetchDbInternal(translation, url);
+			} catch (error) {
+				this.markFailure(translation, error);
+				throw error;
+			}
+		});
 	}
 
 	private async fetchDbInternal(translation: Translation, url: string): Promise<DatabaseInstance> {
@@ -252,7 +403,6 @@ export class DatabaseEngine {
 
 		const sqlJs = await this.getSqlJs();
 
-		let instance: DatabaseInstance | undefined;
 		try {
 			new Notice(`Downloading ${translation} database...`);
 			debug(`[DB] Fetching ${translation} database from URL...`);
@@ -271,47 +421,206 @@ export class DatabaseEngine {
 			const arrayBuffer = response.arrayBuffer;
 			debug(`[DB] Downloaded ${translation} database: ${arrayBuffer.byteLength} bytes`);
 
-			// Validate the downloaded database before changing either the cache
-			// file or the currently active in-memory database.
-			debug(`[DB] Validating downloaded ${translation} database`);
-			this.assertActive();
-			instance = this.createValidatedInstance(sqlJs, translation, new Uint8Array(arrayBuffer));
-
-			// Save to vault only after validation succeeds.
-			const fileName = translation === 'KJV' ? 'KJV+.sqlite3' : 'RST+.sqlite3';
-			const filePath = `${this.pluginDataDir}${fileName}`;
-
-			// Ensure directory exists
-			debug(`[DB] Creating plugin directory: ${this.pluginDataDir}`);
-			await this.vault.adapter.mkdir(this.pluginDataDir);
-
-			// Save the binary data
-			debug(`[DB] Saving ${translation} database to: ${filePath}`);
-			this.assertActive();
-			await this.vault.adapter.writeBinary(filePath, arrayBuffer);
-			this.assertActive();
-
-			const old = this.databases.get(translation);
-			this.databases.set(translation, instance);
-			if (old && old !== instance) {
-				disposeSearchCorpus(old);
-				old.isLoaded = false;
-				old.db.close();
-			}
-			instance = undefined;
+			// Validation and replacement are shared with local imports.
+			const instance = await this.installDatabase(translation, sqlJs, arrayBuffer);
 
 			new Notice(`${translation} database downloaded and cached successfully`);
 			debug(`[DB] Successfully downloaded and cached ${translation} database`);
 
-			return this.databases.get(translation)!;
+			return instance;
 		} catch (error) {
-			if (instance) instance.db.close();
 			console.error(`[DB] Failed to download ${translation} database:`, error);
 			console.error(`[DB] Error details:`, {
 				message: String(error),
 				stack: error instanceof Error ? error.stack : undefined,
 			});
-			throw new Error(`Failed to download ${translation} database: ${String(error)}`);
+			throw new Error(`Failed to download ${translation} database: ${errorMessage(error)}`);
+		}
+	}
+
+	/**
+	 * Install a user-selected local SQLite file. Any filename/casing is
+	 * accepted - the contents are validated and saved under the canonical
+	 * plugin filename.
+	 */
+	async importDb(
+		translation: Translation,
+		data: ArrayBuffer | Uint8Array,
+	): Promise<DatabaseInstance> {
+		this.assertActive();
+		this.setStatus(translation, { state: 'loading' });
+		return this.serialize(translation, async () => {
+			try {
+				const arrayBuffer = data instanceof Uint8Array
+					? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
+					: data;
+				const sqlJs = await this.getSqlJs();
+				return await this.installDatabase(translation, sqlJs, arrayBuffer);
+			} catch (error) {
+				this.markFailure(translation, error);
+				throw error;
+			}
+		});
+	}
+
+	/** Alias for importDb(), matching the plugin-facing API name. */
+	importDatabase(
+		translation: Translation,
+		data: ArrayBuffer | Uint8Array,
+	): Promise<DatabaseInstance> {
+		return this.importDb(translation, data);
+	}
+
+	/** Keep all setup controls busy from file selection through installation. */
+	async importLocalFile(translation: Translation, pickFile: () => Promise<File | null>): Promise<boolean> {
+		this.assertActive();
+		if (this.getStatus(translation).state === 'loading') return false;
+		const previousStatus = this.getStatus(translation);
+		this.setStatus(translation, { state: 'loading' });
+		return this.serialize(translation, async () => {
+			try {
+				const file = await pickFile();
+				this.assertActive();
+				if (!file) {
+					this.setStatus(translation, previousStatus);
+					return false;
+				}
+				const data = await file.arrayBuffer();
+				await this.installDatabase(translation, await this.getSqlJs(), data);
+				return true;
+			} catch (error) {
+				this.markFailure(translation, error);
+				throw error;
+			}
+		});
+	}
+
+	/** Recover an interrupted replacement before loading or installing again. */
+	private async recoverBackup(translation: Translation): Promise<void> {
+		const adapter = this.vault.adapter;
+		const path = `${this.pluginDataDir}${CANONICAL_DATABASE_FILES[translation]}`;
+		if (typeof adapter.exists === 'function' && typeof adapter.rename === 'function'
+			&& !await adapter.exists(path) && await adapter.exists(`${path}.bak`)) {
+			await adapter.rename(`${path}.bak`, path);
+		}
+	}
+
+	/**
+	 * Validate, persist, and publish a database. Validation happens before the
+	 * previous file or active instance is touched; persistence uses a temporary
+	 * file plus a backup rename so a failed write can be rolled back.
+	 */
+	private async installDatabase(
+		translation: Translation,
+		sqlJs: initSqlJs.SqlJsStatic,
+		data: ArrayBuffer,
+	): Promise<DatabaseInstance> {
+		let temporary: DatabaseInstance | undefined;
+		try {
+			this.assertActive();
+			temporary = this.createValidatedInstance(sqlJs, translation, new Uint8Array(data));
+			await this.persistDatabaseFile(translation, data);
+			this.assertActive();
+
+			const old = this.databases.get(translation);
+			this.databases.set(translation, temporary);
+			temporary = undefined;
+			if (old) {
+				disposeSearchCorpus(old);
+				old.isLoaded = false;
+				old.db.close();
+			}
+			this.setStatus(translation, { state: 'ready' });
+			return this.databases.get(translation)!;
+		} finally {
+			if (temporary) {
+				disposeSearchCorpus(temporary);
+				temporary.isLoaded = false;
+				temporary.db.close();
+			}
+		}
+	}
+
+	/** Write `data` to the canonical path, preserving the previous file on failure. */
+	private async persistDatabaseFile(translation: Translation, data: ArrayBuffer): Promise<void> {
+		const adapter = this.vault.adapter;
+		const filePath = `${this.pluginDataDir}${CANONICAL_DATABASE_FILES[translation]}`;
+		const temporaryPath = `${filePath}.tmp`;
+		const backupPath = `${filePath}.bak`;
+
+		debug(`[DB] Creating plugin directory: ${this.pluginDataDir}`);
+		await adapter.mkdir(this.pluginDataDir);
+		await this.recoverBackup(translation);
+
+		const rename = (adapter as unknown as {
+			rename?: (oldPath: string, newPath: string) => Promise<void>;
+		}).rename;
+
+		if (typeof rename !== 'function') {
+			// Minimal adapters (mostly tests) may not expose rename. Fall back
+			// to a direct write, keeping the old bytes for rollback when the
+			// adapter can tell us whether a file exists.
+			let previous: ArrayBuffer | undefined;
+			const exists = (adapter as unknown as { exists?: (path: string) => Promise<boolean> }).exists;
+			if (typeof exists === 'function' && await exists.call(adapter, filePath)) {
+				previous = await adapter.readBinary(filePath);
+			}
+			try {
+				this.assertActive();
+				await adapter.writeBinary(filePath, data);
+			} catch (error) {
+				if (previous) {
+					await adapter.writeBinary(filePath, previous).catch(() => undefined);
+				}
+				throw error;
+			}
+			return;
+		}
+
+		const exists = (adapter as unknown as { exists?: (path: string) => Promise<boolean> }).exists;
+		const hadPrevious = typeof exists === 'function'
+			? await exists.call(adapter, filePath)
+			: false;
+
+		await this.safeRemove(temporaryPath);
+		try {
+			debug(`[DB] Writing temporary ${translation} database to: ${temporaryPath}`);
+			await adapter.writeBinary(temporaryPath, data);
+			this.assertActive();
+
+			let movedAside = false;
+			try {
+				if (hadPrevious) {
+					await this.safeRemove(backupPath);
+					await rename.call(adapter, filePath, backupPath);
+					movedAside = true;
+				}
+				await rename.call(adapter, temporaryPath, filePath);
+			} catch (error) {
+				if (movedAside) {
+					try {
+						await rename.call(adapter, backupPath, filePath);
+					} catch (restoreError) {
+						throw new Error(`${errorMessage(error)}. Restore failed: ${errorMessage(restoreError)}. Previous database preserved at ${backupPath}; retry loading to recover it.`);
+					}
+				}
+				throw error;
+			}
+
+			if (movedAside) await this.safeRemove(backupPath);
+		} finally {
+			await this.safeRemove(temporaryPath);
+		}
+	}
+
+	private async safeRemove(path: string): Promise<void> {
+		const adapter = this.vault.adapter;
+		const remove = (adapter as unknown as { remove?: (path: string) => Promise<void> }).remove;
+		if (typeof remove !== 'function') return;
+		try {
+			await remove.call(adapter, path);
+		} catch {
+			// Missing files are fine; cleanup failures are non-fatal.
 		}
 	}
 

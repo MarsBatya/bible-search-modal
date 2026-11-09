@@ -374,6 +374,112 @@
 	font-style: italic;
 }
 
+.no-results-hint {
+	margin-top: 6px;
+	font-size: 12px;
+	font-style: normal;
+}
+
+/* Database setup / status */
+.bible-db-setup {
+	margin: 8px;
+	padding: 12px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background-color: var(--background-secondary);
+}
+
+.bible-db-setup-heading {
+	font-weight: 600;
+	margin-bottom: 4px;
+}
+
+.bible-db-setup-intro {
+	color: var(--text-muted);
+	font-size: 12px;
+	margin-bottom: 10px;
+}
+
+.bible-db-setup-row {
+	display: flex;
+	gap: 12px;
+	align-items: flex-start;
+	justify-content: space-between;
+	padding: 8px 0;
+	border-top: 1px solid var(--background-modifier-border);
+	flex-wrap: wrap;
+}
+
+.bible-db-setup-row:first-of-type {
+	border-top: none;
+}
+
+.bible-db-setup-info {
+	min-width: 180px;
+	flex: 1;
+}
+
+.bible-db-setup-name {
+	font-weight: 600;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.bible-db-setup-detail {
+	color: var(--text-muted);
+	font-size: 12px;
+	margin-top: 2px;
+	overflow-wrap: anywhere;
+}
+
+.bible-db-status {
+	font-size: 11px;
+	font-weight: 500;
+	padding: 1px 6px;
+	border-radius: 10px;
+	background-color: var(--background-modifier-border);
+	color: var(--text-muted);
+}
+
+.bible-db-status.is-ready {
+	background-color: var(--background-modifier-success);
+	color: var(--text-success);
+}
+
+.bible-db-status.is-failed {
+	background-color: var(--background-modifier-error);
+	color: var(--text-error);
+}
+
+.bible-db-status.is-loading {
+	opacity: 0.8;
+}
+
+.bible-db-setup-actions {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+.bible-db-setup-actions button {
+	min-height: 30px;
+}
+
+.bible-db-setup .is-hidden {
+	display: none;
+}
+
+.bible-search-settings .is-hidden {
+	display: none;
+}
+
+/* Transient file input used by local database import. */
+.bible-search-file-input {
+	display: none;
+}
+
 /* Settings Tab Styling
    Scoped under .bible-search-settings (added to containerEl in settings.ts).
    .setting-item / .mod-cta / .checkbox-container etc. are Obsidian's own

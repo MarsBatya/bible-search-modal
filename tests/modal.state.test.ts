@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Verse } from '../src/types';
 
-const { searchMock, renderResultsListMock } = vi.hoisted(() => ({
+const { searchMock, renderResultsListMock, setupPanelMock } = vi.hoisted(() => ({
 	searchMock: vi.fn(),
 	renderResultsListMock: vi.fn(),
+	setupPanelMock: vi.fn(() => ({ update: vi.fn(), destroy: vi.fn() })),
 }));
 
 class FakeElement {
@@ -36,6 +37,11 @@ vi.mock('obsidian', () => ({
 	Notice: vi.fn(),
 }));
 vi.mock('../src/search/engine', () => ({ search: searchMock }));
+vi.mock('../src/ui/database-setup', () => ({
+	renderDatabaseSetupPanel: setupPanelMock,
+	databaseStatusDescription: vi.fn(() => ''),
+	databaseStatusLabel: vi.fn(() => ''),
+}));
 vi.mock('../src/ui/results-view', () => ({
 	createSearchInput: () => new FakeElement(),
 	createMultiSelectToggle: () => new FakeElement(),
@@ -47,10 +53,11 @@ vi.mock('../src/ui/results-view', () => ({
 	updateVerseSelection: vi.fn(),
 	showLoading: vi.fn(),
 	showError: vi.fn(),
+	showNoResults: vi.fn(),
 }));
 
 import { BibleSearchModal } from '../src/ui/modal';
-import { showError } from '../src/ui/results-view';
+import { showError, showNoResults } from '../src/ui/results-view';
 
 const verse: Verse = {
 	book_number: 430, book_name_short: 'John', book_name_long: 'John',
@@ -65,13 +72,20 @@ function deferred<T>() {
 	return { promise, resolve, reject };
 }
 
-function createModal(lastQuery = ''): BibleSearchModal {
+function createModal(lastQuery = '', overrides: Record<string, unknown> = {}): BibleSearchModal {
 	const plugin = {
 		settings: { showParallelByDefault: false, highlightMatches: false },
 		getDbEngine: () => ({ ensureDb: vi.fn().mockResolvedValue({ isLoaded: true }), getDb: vi.fn() }),
 		getLastSearchQuery: () => lastQuery,
 		setLastSearchQuery: vi.fn(),
 		isRecentlyInserted: () => false,
+		getDatabaseStatus: () => ({ state: 'not-configured' }),
+		isDatabaseDownloadConfigured: () => false,
+		importDatabaseFromPicker: vi.fn().mockResolvedValue(false),
+		downloadDatabase: vi.fn().mockResolvedValue(undefined),
+		retryDatabase: vi.fn().mockResolvedValue(undefined),
+		onDatabaseStatusChange: vi.fn(() => () => undefined),
+		...overrides,
 	};
 	const app = { workspace: { activeEditor: null } };
 	const modal = new BibleSearchModal(app as never, plugin as never);
@@ -97,10 +111,57 @@ describe('modal search state', () => {
 		});
 		searchMock.mockReset();
 		renderResultsListMock.mockReset();
+		setupPanelMock.mockClear();
 		vi.mocked(showError).mockClear();
+		vi.mocked(showNoResults).mockClear();
 	});
 	afterEach(() => {
 		vi.unstubAllGlobals();
+	});
+
+	it('shows database setup actions instead of an error when no database is available', async () => {
+		const modal = createModal('', {
+			getDbEngine: () => ({ ensureDb: vi.fn().mockResolvedValue(null), getDb: vi.fn() }),
+		});
+		modal['handleSearch']('John 3:16');
+		await flushDebounce();
+		await settle();
+		expect(setupPanelMock).toHaveBeenCalledOnce();
+		expect(showError).not.toHaveBeenCalled();
+		expect(searchMock).not.toHaveBeenCalled();
+		modal.onClose();
+	});
+
+	it('offers setup on opening an empty modal without databases', async () => {
+		const modal = createModal('', {
+			getDbEngine: () => ({ ensureDb: vi.fn().mockResolvedValue(null), getDb: vi.fn() }),
+		});
+		await settle();
+		expect(setupPanelMock).toHaveBeenCalledOnce();
+		expect(searchMock).not.toHaveBeenCalled();
+		modal.onClose();
+	});
+
+	it('does not show late initial setup after closing the modal', async () => {
+		const loading = deferred<null>();
+		const modal = createModal('', {
+			getDbEngine: () => ({ ensureDb: () => loading.promise, getDb: vi.fn() }),
+		});
+		modal.onClose();
+		loading.resolve(null);
+		await settle();
+		expect(setupPanelMock).not.toHaveBeenCalled();
+	});
+
+	it('shows a neutral empty state for a valid query with no matches', async () => {
+		searchMock.mockResolvedValue({ results: [], sourceDb: 'KJV', query: 'zzzz', isAddressSearch: false });
+		const modal = createModal();
+		modal['handleSearch']('zzzz');
+		await flushDebounce();
+		await settle();
+		expect(showNoResults).toHaveBeenCalledWith(expect.anything(), 'zzzz');
+		expect(showError).not.toHaveBeenCalled();
+		modal.onClose();
 	});
 
 	it('clears old results and rejects a click from an obsolete rendered row', async () => {
