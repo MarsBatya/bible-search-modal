@@ -470,6 +470,7 @@ export function createSearchInput(
 		placeholder,
 		attr: {
 			'aria-label': 'Search bible',
+			enterkeyhint: 'search',
 			role: 'combobox',
 			'aria-autocomplete': 'list',
 			'aria-haspopup': 'grid',

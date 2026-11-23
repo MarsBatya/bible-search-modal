@@ -4,10 +4,11 @@ import type { SearchResult, Verse } from '../src/types';
 import { verseKey } from '../src/utils/verse-key';
 import { installObsidianDomHelpers } from './dom';
 
-const { coordinateMock, searchMock, parallelMock } = vi.hoisted(() => ({
+const { coordinateMock, searchMock, parallelMock, platformMock } = vi.hoisted(() => ({
 	coordinateMock: vi.fn(),
 	searchMock: vi.fn(),
 	parallelMock: vi.fn(),
+	platformMock: { isMobile: false },
 }));
 
 vi.mock('obsidian', () => ({
@@ -24,6 +25,7 @@ vi.mock('obsidian', () => ({
 		}
 	},
 	Notice: vi.fn(),
+	Platform: platformMock,
 	setIcon: vi.fn(),
 }));
 
@@ -128,6 +130,7 @@ describe('modal phase 5 interaction', () => {
 		coordinateMock.mockReset();
 		searchMock.mockReset();
 		parallelMock.mockReset();
+		platformMock.isMobile = false;
 	});
 
 	afterEach(() => {
@@ -344,6 +347,65 @@ describe('modal phase 5 interaction', () => {
 		expect(plugin.setShowParallel).toHaveBeenCalledWith(true);
 		expect(coordinateMock).toHaveBeenCalledOnce();
 		expect(coordinateMock.mock.calls[0]?.[2]).toBe(true);
+		modal.onClose();
+	});
+
+	it('blurs the search input on Enter on mobile unless a verse is highlighted', async () => {
+		platformMock.isMobile = true;
+		const first = verse(16);
+		coordinateMock.mockImplementation(
+			(
+				_query: string,
+				_selection: unknown,
+				_show: boolean,
+				_provider: unknown,
+				_isCurrent: () => boolean,
+				onPrimary: (result: SearchResult) => void
+			) => {
+				onPrimary(primaryResult({ results: [first] }));
+				return Promise.resolve();
+			}
+		);
+
+		const modal = createModal(createPlugin({ lastQuery: 'John 3:16' }));
+		await settle();
+
+		const input = modal['searchInput'];
+		expect(input.getAttribute('enterkeyhint')).toBe('search');
+		const blur = vi.spyOn(input, 'blur');
+		const insert = vi
+			.spyOn(modal as never, 'insertVerse' as never)
+			.mockImplementation(() => undefined);
+
+		// Without arrow-key selection, Enter on mobile hides the keyboard instead of inserting.
+		const preventDefault = vi.fn();
+		modal['handleKeyDown']({ key: 'Enter', preventDefault } as unknown as KeyboardEvent);
+		expect(preventDefault).toHaveBeenCalledOnce();
+		expect(blur).toHaveBeenCalledOnce();
+		expect(insert).not.toHaveBeenCalled();
+
+		// With an explicit arrow-key selection (e.g. tablet hardware keyboard), Enter still inserts.
+		modal['handleKeyDown'](keyEvent('ArrowDown'));
+		modal['handleKeyDown'](keyEvent('Enter'));
+		expect(insert).toHaveBeenCalledWith(first);
+		modal.onClose();
+	});
+
+	it('flushes a pending debounced search and blurs on Enter on mobile', async () => {
+		platformMock.isMobile = true;
+		coordinateMock.mockResolvedValue(undefined);
+
+		const modal = createModal(createPlugin());
+		modal['handleSearch']('grace');
+		const blur = vi.spyOn(modal['searchInput'], 'blur');
+
+		const preventDefault = vi.fn();
+		modal['handleKeyDown']({ key: 'Enter', preventDefault } as unknown as KeyboardEvent);
+		await settle();
+
+		expect(preventDefault).toHaveBeenCalledOnce();
+		expect(coordinateMock).toHaveBeenCalledOnce();
+		expect(blur).toHaveBeenCalledOnce();
 		modal.onClose();
 	});
 });

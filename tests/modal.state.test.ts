@@ -22,6 +22,7 @@ class FakeElement {
 	querySelectorAll = vi.fn(() => []);
 	addEventListener = vi.fn();
 	focus = vi.fn();
+	blur = vi.fn();
 	select = vi.fn();
 	setText(value: string): void { this.text = value; }
 	setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
@@ -36,6 +37,7 @@ vi.mock('obsidian', () => ({
 		close(): void { (this as { onClose: () => void }).onClose(); }
 	},
 	Notice: vi.fn(),
+	Platform: { isMobile: false },
 }));
 vi.mock('../src/search/engine', () => ({ search: searchMock }));
 vi.mock('../src/ui/database-setup', () => ({

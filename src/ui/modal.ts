@@ -1,4 +1,4 @@
-import { App, Modal, Notice, Editor, EditorPosition } from 'obsidian';
+import { App, Modal, Notice, Editor, EditorPosition, Platform } from 'obsidian';
 import type BibleSearchPlugin from '../main';
 import {
 	Verse,
@@ -607,6 +607,18 @@ export class BibleSearchModal extends Modal {
 			window.clearTimeout(this.searchDebounceTimer);
 			this.searchDebounceTimer = null;
 			void this.performSearch(this.searchQuery, this.requestId, this.pendingReference);
+			if (Platform.isMobile) {
+				this.searchInput.blur();
+			}
+			return;
+		}
+		// On mobile, tapping Enter/Search finishes the query and dismisses the
+		// on-screen keyboard so the user can browse and tap a result, rather
+		// than immediately inserting the first verse. If a verse was explicitly
+		// highlighted (e.g. via an external keyboard), Enter still acts on it.
+		if (event.key === 'Enter' && Platform.isMobile && this.selectedIndex < 0) {
+			event.preventDefault();
+			this.searchInput.blur();
 			return;
 		}
 		if (!this.hasCurrentResults() || this.currentResults.length === 0) {
